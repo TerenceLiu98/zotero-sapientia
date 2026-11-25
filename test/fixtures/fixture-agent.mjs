@@ -140,7 +140,8 @@ async function runTurn(id, session, text) {
       }
       return end("end_turn");
     }
-    case "think": {
+    case "think":
+    case "think-slow": {
       say({
         sessionUpdate: "agent_thought_chunk",
         content: { type: "text", text: "Thinking about it." },
@@ -151,6 +152,7 @@ async function runTurn(id, session, text) {
         title: "Reading the paper",
         status: "pending",
       });
+      if (command === "think-slow") await sleep(1200);
       await sleep(20);
       say({
         sessionUpdate: "tool_call_update",
@@ -165,6 +167,7 @@ async function runTurn(id, session, text) {
         status: "completed",
       });
       chunk(rest[0]);
+      if (command === "think-slow") await sleep(600);
       return end("end_turn");
     }
     case "slow": {

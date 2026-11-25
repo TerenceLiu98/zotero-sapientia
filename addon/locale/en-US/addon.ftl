@@ -18,6 +18,16 @@ action-agent-settings = Agent settings
 action-copy-answer = Copy answer
 status-answer-copied = Answer copied
 action-open-citation = Open cited PDF
+action-open-source = Open source
+action-regenerate-answer = Regenerate answer
+answer-sources = Sources
+answer-source-page = Page { $page }
+answer-pdf-source = Zotero PDF
+answer-writing = Writing
+thinking-running = Thinking
+thinking-finished = Finished thinking
+thinking-seconds = { $seconds }s
+thinking-tool = Tool call
 action-stop = Stop
 
 composer-placeholder = Ask your agent…

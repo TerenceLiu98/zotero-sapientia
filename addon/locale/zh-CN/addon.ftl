@@ -18,6 +18,16 @@ action-agent-settings = Agent 设置
 action-copy-answer = 复制回答
 status-answer-copied = 已复制回答
 action-open-citation = 打开引用的 PDF
+action-open-source = 打开来源
+action-regenerate-answer = 重新生成回答
+answer-sources = 来源
+answer-source-page = 第 { $page } 页
+answer-pdf-source = Zotero PDF
+answer-writing = 正在撰写
+thinking-running = 思考中
+thinking-finished = 思考完成
+thinking-seconds = { $seconds } 秒
+thinking-tool = 工具调用
 action-stop = 停止
 
 composer-placeholder = 向你的 Agent 提问…

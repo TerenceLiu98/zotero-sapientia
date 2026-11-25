@@ -17,6 +17,8 @@ export type ChatMessage =
       id: string;
       role: "assistant";
       blocks: AssistantBlock[];
+      startedAt?: number;
+      thinkingEndedAt?: number;
       /** How the turn ended, once it has. */
       stopReason: acp.StopReason | null;
     };
@@ -111,7 +113,18 @@ function appendAssistant(
   if (last?.role === "assistant") {
     return [
       ...messages.slice(0, -1),
-      { ...last, blocks: appendBlock(last.blocks, block) },
+      {
+        ...last,
+        blocks: appendBlock(last.blocks, block),
+        thinkingEndedAt:
+          last.thinkingEndedAt ??
+          (last.startedAt &&
+          "type" in block &&
+          block.type === "text" &&
+          block.text.trim()
+            ? Date.now()
+            : undefined),
+      },
     ];
   }
   return [

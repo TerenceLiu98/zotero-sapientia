@@ -133,10 +133,12 @@ describe("the sidebar", function () {
       view,
       status: () => root.querySelector(".sap-chat-status")!.textContent!.trim(),
       sendStop: () =>
-        root.querySelector<HTMLButtonElement>(".sap-chat-composer button")!,
+        root.querySelector<HTMLButtonElement>(".sap-composer-send")!,
       input: () => root.querySelector<HTMLTextAreaElement>("textarea")!,
       notice: () => root.querySelector<HTMLElement>(".sap-chat-notice")!,
-      answer: () => root.querySelector(".sap-msg-assistant")?.textContent ?? "",
+      thinking: () => root.querySelector<HTMLDetailsElement>(".sap-thinking")!,
+      answer: () =>
+        root.querySelector(".sap-answer-text")?.textContent?.trim() ?? "",
       questions: () => [...root.querySelectorAll(".sap-msg-user")],
     };
   }
@@ -148,20 +150,30 @@ describe("the sidebar", function () {
     assert.equal(ui.sendStop().getAttribute("aria-label"), "Send");
 
     use(agent.profile());
-    const sending = ui.chat.send("think:hello");
-    await until(() => ui.answer().includes("Reading the paper"));
+    const sending = ui.chat.send("think-slow:hello");
+    await until(() =>
+      ui.thinking()?.textContent?.includes("Reading the paper"),
+    );
 
     assert.equal(ui.status(), "Working…");
     assert.equal(ui.sendStop().getAttribute("aria-label"), "Stop");
+    const thinking = ui.thinking();
+    assert.isTrue(thinking.open);
+    await until(() =>
+      thinking.querySelector(".sap-thinking-time")?.textContent?.includes("1"),
+    );
+    await until(() => ui.answer() === "hello");
+    assert.equal(ui.thinking(), thinking);
+    assert.equal(ui.status(), "Working…");
     await sending;
 
     assert.equal(ui.status(), "Connected");
-    assert.equal(
-      ui.answer().trim(),
-      "Thinking about it.Reading the paperhello",
-    );
+    assert.equal(ui.answer(), "hello");
+    assert.include(ui.thinking().textContent!, "Finished thinking");
+    assert.include(ui.thinking().textContent!, "Thinking about it.");
+    assert.isFalse(ui.thinking().open);
     assert.lengthOf(ui.questions(), 1);
-    assert.equal(ui.questions()[0].textContent, "think:hello");
+    assert.equal(ui.questions()[0].textContent, "think-slow:hello");
   });
 
   it("sends what was typed on Enter, and adds a line on Shift+Enter", async function () {
@@ -262,6 +274,25 @@ describe("the sidebar", function () {
     assert.lengthOf(view.querySelectorAll(".sap-answer-text a"), 1);
     assert.isNull(view.querySelector(".sap-answer-text img"));
     assert.isNotNull(view.querySelector('button[aria-label="Copy answer"]'));
+  });
+
+  it("keeps one question when regenerating the last answer", async function () {
+    const ui = mount();
+    use(agent.profile());
+    await ui.chat.send("echo:try again");
+    const previous = ui.view.element.querySelector(".sap-msg-assistant");
+    ui.view.element
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="Regenerate answer"]',
+      )!
+      .click();
+    await until(
+      () =>
+        ui.view.element.querySelector(".sap-msg-assistant") !== previous &&
+        ui.chat.getState().execution === "idle",
+    );
+    assert.lengthOf(ui.questions(), 1);
+    assert.equal(ui.answer(), "try again");
   });
 });
 

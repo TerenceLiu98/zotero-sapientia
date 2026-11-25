@@ -2,7 +2,11 @@ import { RequestError } from "@agentclientprotocol/sdk";
 import type * as acp from "@agentclientprotocol/sdk";
 import { secretValues } from "../agents/secrets";
 import { defaultWorkspace, resolveLaunchSpec } from "../agents/launch";
-import { getDefaultProfile, loadProfiles } from "../agents/store";
+import {
+  getDefaultProfile,
+  loadProfiles,
+  setDefaultProfileId,
+} from "../agents/store";
 import { AgentConnection, type AgentEvent } from "../acp/connection";
 import { UserError } from "../utils/errors";
 import { logError, redactor } from "../utils/log";
@@ -113,11 +117,52 @@ export class ChatController {
     }
   }
 
+  async selectAgent(id: string): Promise<void> {
+    if (
+      this.turn ||
+      this.connecting ||
+      !loadProfiles().some((profile) => profile.id === id)
+    )
+      return;
+    setDefaultProfileId(id);
+    if (this.connection && this.profileId !== id) await this.disconnect();
+    if (this.profileId !== id) {
+      this.restorableSession = null;
+      this.update({
+        connection: "disconnected",
+        agentName: null,
+        canRestore: false,
+        error: null,
+      });
+    }
+  }
+
   /**
    * Sends a prompt and resolves when the agent's turn has ended. Resolves false,
    * leaving the text unsent, if no agent could be connected.
    */
-  async send(text: string): Promise<boolean> {
+  send(text: string): Promise<boolean> {
+    return this.sendPrompt(text);
+  }
+
+  /** Requests another response to the last question in the current session. */
+  async regenerate(assistantId: string): Promise<boolean> {
+    const [question, answer] = this.state.messages.slice(-2);
+    if (
+      this.state.connection !== "connected" ||
+      question?.role !== "user" ||
+      answer?.role !== "assistant" ||
+      answer.id !== assistantId ||
+      !answer.stopReason
+    )
+      return false;
+    return this.sendPrompt(question.text, assistantId);
+  }
+
+  private async sendPrompt(
+    text: string,
+    replaceAnswerId?: string,
+  ): Promise<boolean> {
     const prompt = text.trim();
     if (!prompt || this.turn) {
       return false;
@@ -127,7 +172,12 @@ export class ChatController {
     }
     const connection = this.connection;
     const sessionId = this.sessionId;
-    if (this.turn || !connection || !sessionId) {
+    if (
+      this.turn ||
+      !connection ||
+      !sessionId ||
+      (replaceAnswerId && this.state.messages.at(-1)?.id !== replaceAnswerId)
+    ) {
       return false;
     }
 
@@ -136,12 +186,17 @@ export class ChatController {
     this.update({
       execution: "executing",
       messages: [
-        ...this.state.messages,
-        { id: this.nextMessageId(), role: "user", text: prompt },
+        ...(replaceAnswerId
+          ? this.state.messages.slice(0, -1)
+          : [
+              ...this.state.messages,
+              { id: this.nextMessageId(), role: "user" as const, text: prompt },
+            ]),
         {
           id: turn.assistantId,
           role: "assistant",
           blocks: [],
+          startedAt: Date.now(),
           stopReason: null,
         },
       ],
@@ -360,7 +415,13 @@ export class ChatController {
     this.update({
       execution: "idle",
       messages: this.state.messages.map((message) =>
-        message.id === turn.assistantId ? { ...message, stopReason } : message,
+        message.id === turn.assistantId && message.role === "assistant"
+          ? {
+              ...message,
+              stopReason,
+              thinkingEndedAt: message.thinkingEndedAt ?? Date.now(),
+            }
+          : message,
       ),
     });
   }
