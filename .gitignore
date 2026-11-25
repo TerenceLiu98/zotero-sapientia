@@ -1,0 +1,18 @@
+
+docs/adr/
+
+# Node.js and TypeScript
+node_modules/
+*.tsbuildinfo
+npm-debug.log*
+
+# Zotero plugin scaffold output
+/.scaffold/
+
+# Local environment settings
+.env
+.env.*
+!.env.example
+
+# macOS metadata
+.DS_Store
