@@ -12,6 +12,12 @@ action-new-conversation = 新建对话
 action-reconnect = 重新连接
 action-restore = 恢复对话
 action-send = 发送
+chat-title = Sapientia
+action-close-pane = 关闭侧栏
+action-agent-settings = Agent 设置
+action-copy-answer = 复制回答
+status-answer-copied = 已复制回答
+action-open-citation = 打开引用的 PDF
 action-stop = 停止
 
 composer-placeholder = 向你的 Agent 提问…

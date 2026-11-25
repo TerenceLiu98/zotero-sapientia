@@ -12,6 +12,12 @@ action-new-conversation = New conversation
 action-reconnect = Reconnect
 action-restore = Restore conversation
 action-send = Send
+chat-title = Sapientia
+action-close-pane = Close chat
+action-agent-settings = Agent settings
+action-copy-answer = Copy answer
+status-answer-copied = Answer copied
+action-open-citation = Open cited PDF
 action-stop = Stop
 
 composer-placeholder = Ask your agent…

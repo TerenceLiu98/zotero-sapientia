@@ -3,7 +3,7 @@ import { secretValues } from "./agents/secrets";
 import { loadProfiles } from "./agents/store";
 import { ChatController } from "./chat/controller";
 import { renderSettingsPane } from "./modules/settings/pane";
-import { registerChatSection } from "./modules/sidebar/section";
+import { mountChatSidebar } from "./modules/sidebar/section";
 import { installGlobals } from "./utils/globals";
 import { getString, initLocale } from "./utils/locale";
 import { logError, redactor } from "./utils/log";
@@ -23,8 +23,8 @@ export interface Plugin {
     onStartup(): Promise<void>;
     /** @param appShutdown true when Zotero itself is quitting */
     onShutdown(options: { appShutdown: boolean }): Promise<void>;
-    onMainWindowLoad(window: Window): Promise<void>;
-    onMainWindowUnload(): void;
+    onMainWindowLoad(window: Window): void;
+    onMainWindowUnload(window: Window): void;
     onPrefsEvent(type: "load", data: { window: Window }): void;
   };
 }
@@ -33,7 +33,7 @@ export function createPlugin(): Plugin {
   const chat = new ChatController();
   let starting: Promise<void> | null = null;
   let stopping = false;
-  let chatPaneID: string | false = false;
+  const sidebars = new Map<Window, () => void>();
   let prefsPaneID: string | null = null;
   let disposeSettingsPane: (() => void) | null = null;
   let secretsObserver: symbol | null = null;
@@ -43,10 +43,10 @@ export function createPlugin(): Plugin {
     redactor.setSecrets(loadProfiles().flatMap(secretValues));
   }
 
-  async function onMainWindowLoad(window: Window): Promise<void> {
-    await window.MozXULElement.insertFTLIfNeeded(
-      `${config.addonRef}-mainWindow.ftl`,
-    );
+  function onMainWindowLoad(window: Window): void {
+    if (stopping || sidebars.has(window)) return;
+    const dispose = mountChatSidebar(window, chat);
+    if (dispose) sidebars.set(window, dispose);
   }
 
   /** Takes back what `start` has registered so far. */
@@ -55,10 +55,8 @@ export function createPlugin(): Plugin {
       Zotero.Prefs.unregisterObserver(secretsObserver);
       secretsObserver = null;
     }
-    if (chatPaneID !== false) {
-      Zotero.ItemPaneManager.unregisterSection(chatPaneID);
-      chatPaneID = false;
-    }
+    for (const dispose of sidebars.values()) dispose();
+    sidebars.clear();
     if (prefsPaneID !== null) {
       Zotero.PreferencePanes.unregister(prefsPaneID);
       prefsPaneID = null;
@@ -89,18 +87,14 @@ export function createPlugin(): Plugin {
       pluginID: config.addonID,
       src: `${rootURI}content/preferences.xhtml`,
       label: getString("prefs-title"),
-      image: `chrome://${config.addonRef}/content/icons/favicon.png`,
+      image: `chrome://${config.addonRef}/content/icons/sapientia.svg`,
     });
     if (stopping) {
       // Shut down while starting: nothing else is registered.
       return;
     }
-    chatPaneID = registerChatSection(chat);
-    if (chatPaneID === false) {
-      logError("The chat section was not registered");
-    }
     for (const window of Zotero.getMainWindows()) {
-      await onMainWindowLoad(window);
+      onMainWindowLoad(window);
     }
 
     plugin.data.initialized = true;
@@ -129,7 +123,10 @@ export function createPlugin(): Plugin {
       },
 
       onMainWindowLoad,
-      onMainWindowUnload() {},
+      onMainWindowUnload(window) {
+        sidebars.get(window)?.();
+        sidebars.delete(window);
+      },
 
       onPrefsEvent(type, data) {
         if (type !== "load") {

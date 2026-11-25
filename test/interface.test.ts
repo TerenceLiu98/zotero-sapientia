@@ -5,11 +5,11 @@ import {
   getDefaultProfileId,
   loadProfiles,
 } from "../src/agents/store";
+import { CHAT_PANE_ID, CHAT_TOGGLE_ID } from "../src/modules/sidebar/section";
 import { createChatView } from "../src/modules/sidebar/view";
+import { getString } from "../src/utils/locale";
 import {
   ADDON_ID,
-  chatPaneID,
-  chatSections,
   type FixtureAgent,
   isAlive,
   makeAgent,
@@ -50,7 +50,8 @@ function typeInto(
 describe("the plugin in Zotero", function () {
   this.timeout(60000);
 
-  const sections = chatSections;
+  const toggles = () =>
+    mainWindow().document.querySelectorAll(`#${CHAT_TOGGLE_ID}`);
   const panes = () =>
     Zotero.PreferencePanes.pluginPanes.filter(
       (pane) => pane.pluginID === ADDON_ID,
@@ -60,7 +61,8 @@ describe("the plugin in Zotero", function () {
 
   it("comes up and registers its interface exactly once", () => {
     assert.isTrue(plugin().data.initialized);
-    assert.lengthOf(sections(), 1);
+    plugin().hooks.onMainWindowLoad(mainWindow());
+    assert.lengthOf(toggles(), 1);
     assert.lengthOf(panes(), 1);
     assert.equal(panes()[0].id, PREFS_PANE_ID);
   });
@@ -81,18 +83,18 @@ describe("the plugin in Zotero", function () {
     await addon.disable();
 
     await until(() => Zotero.Sapientia === undefined);
-    assert.isEmpty(sections(), "the chat section is gone");
+    assert.isEmpty(toggles(), "the sidebar toggle is gone");
     assert.isEmpty(panes(), "the settings pane is gone");
     await until(async () => !(await isAlive(pid)), { timeout: 8000 });
     assert.isNull(
-      mainWindow().document.querySelector("item-pane-custom-section .sap-chat"),
+      mainWindow().document.getElementById(CHAT_PANE_ID),
       "the sidebar is gone from the window",
     );
 
     await addon.enable();
 
     await until(() => Boolean(Zotero.Sapientia?.data.initialized));
-    assert.lengthOf(sections(), 1);
+    assert.lengthOf(toggles(), 1);
     assert.lengthOf(panes(), 1);
     assert.isTrue(await plugin().chat.connect(), "the plugin works again");
   });
@@ -143,18 +145,21 @@ describe("the sidebar", function () {
     const ui = mount();
 
     assert.equal(ui.status(), "Not connected");
-    assert.equal(ui.sendStop().textContent, "Send");
+    assert.equal(ui.sendStop().getAttribute("aria-label"), "Send");
 
     use(agent.profile());
     const sending = ui.chat.send("think:hello");
     await until(() => ui.answer().includes("Reading the paper"));
 
     assert.equal(ui.status(), "Working…");
-    assert.equal(ui.sendStop().textContent, "Stop");
+    assert.equal(ui.sendStop().getAttribute("aria-label"), "Stop");
     await sending;
 
     assert.equal(ui.status(), "Connected");
-    assert.equal(ui.answer(), "Thinking about it.Reading the paperhello");
+    assert.equal(
+      ui.answer().trim(),
+      "Thinking about it.Reading the paperhello",
+    );
     assert.lengthOf(ui.questions(), 1);
     assert.equal(ui.questions()[0].textContent, "think:hello");
   });
@@ -202,7 +207,7 @@ describe("the sidebar", function () {
     await sending;
 
     assert.equal(ui.status(), "Connected");
-    assert.equal(ui.sendStop().textContent, "Send");
+    assert.equal(ui.sendStop().getAttribute("aria-label"), "Send");
   });
 
   it("shows a failure without its credential, keeps the transcript, and offers to reconnect", async function () {
@@ -217,9 +222,9 @@ describe("the sidebar", function () {
     assert.notInclude(ui.notice().textContent!, SECRET);
     assert.equal(ui.status(), "Connection failed");
     const reconnect = ui.view.element.querySelector<HTMLButtonElement>(
-      ".sap-chat-header button:not([hidden])",
+      ".sap-chat-actions button:not([hidden])",
     );
-    assert.equal(reconnect?.textContent, "Reconnect");
+    assert.equal(reconnect?.getAttribute("aria-label"), "Reconnect");
     assert.equal(
       ui.questions()[0].textContent,
       "crash",
@@ -236,6 +241,27 @@ describe("the sidebar", function () {
     await ui.chat.send("echo:unseen");
 
     assert.isEmpty(ui.view.element.querySelectorAll(".sap-msg"));
+  });
+
+  it("renders Markdown, PDF citations, and a copy action on a finished answer", async function () {
+    const ui = mount();
+    use(agent.profile());
+    await ui.chat.send(
+      "echo:**Result** [p. 3](zotero://open-pdf/library/items/ABCD1234?page=3) <img src=x> [blocked](zotero://debug/)",
+    );
+
+    const view = ui.view.element;
+    assert.equal(
+      view.querySelector(".sap-answer-text strong")?.textContent,
+      "Result",
+    );
+    assert.equal(
+      view.querySelector(".sap-citation")?.getAttribute("href"),
+      "zotero://open-pdf/library/items/ABCD1234?page=3",
+    );
+    assert.lengthOf(view.querySelectorAll(".sap-answer-text a"), 1);
+    assert.isNull(view.querySelector(".sap-answer-text img"));
+    assert.isNotNull(view.querySelector('button[aria-label="Copy answer"]'));
   });
 });
 
@@ -428,51 +454,54 @@ describe("the settings pane", function () {
   });
 });
 
-describe("the chat section in the item pane", function () {
+describe("the docked chat panel", function () {
   this.timeout(60000);
 
-  it("has an entry in the side navigation and shows the conversation beside the paper", async function () {
+  it("opens from the tab toolbar and preserves the conversation when reopened", async function () {
+    await reset();
     const window = mainWindow();
     const doc = window.document;
-    const paneID = chatPaneID();
-    const paneSelector = window.CSS.escape(paneID);
-
-    const item = new Zotero.Item("journalArticle");
-    item.setField("title", "Attention Is All You Need");
-    const itemID = await item.saveTx();
-    await window.ZoteroPane.collectionsView.selectLibrary(
-      Zotero.Libraries.userLibraryID,
+    const pane = doc.getElementById(CHAT_PANE_ID) as XULElement;
+    const toggle = doc.getElementById(CHAT_TOGGLE_ID)!;
+    const togglePane = () => toggle.dispatchEvent(new window.Event("command"));
+    assert.equal(
+      pane.parentElement,
+      doc.getElementById("tabs-deck")!.parentElement,
     );
-    await window.ZoteroPane.selectItem(itemID);
-
-    await until(() =>
-      doc.querySelector(
-        `item-pane-custom-section[data-pane="${paneSelector}"] .sap-chat`,
-      ),
+    assert.equal(
+      toggle.parentElement,
+      doc.getElementById("zotero-tabs-toolbar"),
     );
-    assert.isOk(
-      doc.querySelector(
-        `#zotero-view-item-sidenav .btn[data-pane="${paneSelector}"]`,
-      ),
-      "the side navigation lists the section",
-    );
+    assert.isTrue(pane.hidden, "the sidebar starts closed");
+    togglePane();
+    assert.isFalse(pane.hidden);
+    assert.equal(toggle.getAttribute("aria-pressed"), "true");
 
-    // Choosing the entry pins the section, which gives it the pane's full height.
-    const sidenav = doc.querySelector(
-      "#zotero-view-item-sidenav",
-    ) as unknown as { pinnedPane: string };
-    sidenav.pinnedPane = paneID;
+    const composer = pane.querySelector("textarea")!;
+    assert.equal(doc.activeElement, composer);
+    const grip = pane.querySelector<HTMLElement>("[role=separator]")!;
+    assert.equal(grip.getAttribute("aria-valuenow"), "400");
+    press(window, grip, "ArrowLeft");
+    assert.equal(grip.getAttribute("aria-valuenow"), "420");
 
-    const agent = await makeAgent("item pane");
+    const agent = await makeAgent("docked chat");
     use(agent.profile());
-    const chat = plugin().chat;
-    await chat.send("think:Transformers rely on self-attention alone.");
-    await chat.send("echo:What is the key result?");
-
-    const section = doc.querySelector(
-      `item-pane-custom-section[data-pane="${paneSelector}"]`,
+    await plugin().chat.send("echo:The key result is self-attention.");
+    typeInto(composer, "Follow-up draft");
+    const closeLabel = getString("action-close-pane");
+    const closeButton = pane.querySelector<HTMLButtonElement>(
+      `button[aria-label="${window.CSS.escape(closeLabel)}"]`,
     )!;
-    assert.include(section.textContent!, "Reading the paper");
+    closeButton.click();
+    assert.isTrue(pane.hidden);
+    assert.equal(toggle.getAttribute("aria-pressed"), "false");
+    togglePane();
+    assert.equal(pane.querySelector("textarea")!.value, "Follow-up draft");
+    assert.include(
+      pane.querySelector(".sap-msg-assistant")!.textContent!,
+      "self-attention",
+    );
+    togglePane();
     await reset();
   });
 });

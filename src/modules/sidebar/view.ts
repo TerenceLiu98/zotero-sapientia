@@ -1,13 +1,27 @@
 import type * as acp from "@agentclientprotocol/sdk";
+import {
+  ArrowUp,
+  Check,
+  Copy,
+  Power,
+  RotateCcw,
+  Settings,
+  Square,
+  SquarePen,
+  X,
+  type IconNode,
+} from "lucide";
 import type {
   AssistantBlock,
   ChatController,
   ChatMessage,
   ChatState,
 } from "../../chat/controller";
+import { config } from "../../../package.json";
 import { formatError } from "../../utils/errors";
 import { getString, type MessageId } from "../../utils/locale";
 import { h, icon, ICON } from "../ui/dom";
+import { renderAnswerText } from "./answer";
 
 /** The chat section's user interface for one conversation. */
 export interface ChatView {
@@ -34,14 +48,18 @@ const UNUSUAL_END: Partial<Record<acp.StopReason, MessageId>> = {
 /** A message is considered scrolled to the end within this many pixels. */
 const BOTTOM_SLACK_PX = 24;
 
-export function createChatView(doc: Document, chat: ChatController): ChatView {
+export function createChatView(
+  doc: Document,
+  chat: ChatController,
+  onClose?: () => void,
+): ChatView {
   const window = doc.defaultView!;
   const agentName = h(doc, "span", { class: "sap-chat-agent" });
   const statusLabel = h(doc, "span");
   const status = h(
     doc,
     "span",
-    { class: "sap-chat-status" },
+    { class: "sap-chat-status", role: "status" },
     h(doc, "span", { class: "sap-chat-dot" }),
     statusLabel,
   );
@@ -59,24 +77,46 @@ export function createChatView(doc: Document, chat: ChatController): ChatView {
     class: "sap-chat-input",
     rows: 1,
     placeholder: getString("composer-placeholder"),
+    "aria-label": getString("composer-placeholder"),
   });
-  const send = actionButton("action-send", () => {
+  const send = iconButton("action-send", ArrowUp, () => {
     if (chat.getState().execution === "idle") {
       void submit();
     } else {
       void chat.stop();
     }
   });
-  const connect = actionButton("action-connect", () => void chat.connect());
-  const reconnect = actionButton("action-reconnect", () => void chat.connect());
-  const disconnect = actionButton(
+  send.classList.add("sap-composer-send");
+  const connect = iconButton(
+    "action-connect",
+    Power,
+    () => void chat.connect(),
+  );
+  const reconnect = iconButton(
+    "action-reconnect",
+    RotateCcw,
+    () => void chat.connect(),
+  );
+  const disconnect = iconButton(
     "action-disconnect",
+    Power,
     () => void chat.disconnect(),
   );
-  const newConversation = actionButton(
+  const newConversation = iconButton(
     "action-new-conversation",
+    SquarePen,
     () => void chat.newConversation(),
   );
+  const composer = h(
+    doc,
+    "div",
+    { class: "sap-chat-composer" },
+    input,
+    h(doc, "div", { class: "sap-composer-toolbar" }, send),
+  );
+  composer.addEventListener("click", (event) => {
+    if (event.target === composer) input.focus();
+  });
   const root = h(
     doc,
     "div",
@@ -85,16 +125,24 @@ export function createChatView(doc: Document, chat: ChatController): ChatView {
       doc,
       "div",
       { class: "sap-chat-header" },
-      agentName,
-      status,
-      connect,
-      reconnect,
-      disconnect,
-      newConversation,
+      h(
+        doc,
+        "div",
+        { class: "sap-chat-actions" },
+        onClose ? iconButton("action-close-pane", X, onClose) : null,
+        newConversation,
+        connect,
+        reconnect,
+        disconnect,
+      ),
+      h(doc, "div", { class: "sap-chat-identity" }, agentName, status),
+      iconButton("action-agent-settings", Settings, () => {
+        Zotero.Utilities.Internal.openPreferences(`${config.addonRef}-prefs`);
+      }),
     ),
     notice,
     transcript,
-    h(doc, "div", { class: "sap-chat-composer" }, input, send),
+    composer,
   );
 
   /** Message nodes by message id, so that an unchanged message keeps its node. */
@@ -113,6 +161,51 @@ export function createChatView(doc: Document, chat: ChatController): ChatView {
       { class: "sap-chat-button", type: "button", click: onClick },
       getString(textId),
     );
+  }
+
+  function iconButton(
+    label: MessageId,
+    glyph: IconNode,
+    action: () => void,
+  ): HTMLButtonElement {
+    const button = h(doc, "button", {
+      class: "sap-chat-button sap-icon-button",
+      type: "button",
+      click: action,
+    });
+    setButtonIcon(button, label, glyph);
+    return button;
+  }
+
+  function setButtonIcon(
+    button: HTMLButtonElement,
+    label: MessageId,
+    glyph: IconNode,
+  ): void {
+    const text = getString(label);
+    if (button.getAttribute("aria-label") === text) return;
+    const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [name, value] of Object.entries({
+      viewBox: "0 0 24 24",
+      width: "16",
+      height: "16",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "1.8",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+    }))
+      svg.setAttribute(name, value);
+    for (const [tag, attributes] of glyph) {
+      const part = doc.createElementNS(svg.namespaceURI, tag);
+      for (const [name, value] of Object.entries(attributes))
+        part.setAttribute(name, String(value));
+      svg.append(part);
+    }
+    button.title = text;
+    button.setAttribute("aria-label", text);
+    button.replaceChildren(svg);
   }
 
   function resizeInput(): void {
@@ -140,7 +233,11 @@ export function createChatView(doc: Document, chat: ChatController): ChatView {
   function renderSend(): void {
     const { connection, execution } = chat.getState();
     const running = execution !== "idle";
-    send.textContent = getString(running ? "action-stop" : "action-send");
+    setButtonIcon(
+      send,
+      running ? "action-stop" : "action-send",
+      running ? Square : ArrowUp,
+    );
     if (running) {
       send.removeAttribute("data-variant");
     } else {
@@ -166,7 +263,9 @@ export function createChatView(doc: Document, chat: ChatController): ChatView {
         block.title,
       );
     }
-    return h(doc, "div", { class: `sap-block-${block.type}` }, block.text);
+    return block.type === "text"
+      ? renderAnswerText(doc, block.text)
+      : h(doc, "div", { class: "sap-block-thought" }, block.text);
   }
 
   function renderMessage(message: ChatMessage): HTMLElement {
@@ -174,14 +273,32 @@ export function createChatView(doc: Document, chat: ChatController): ChatView {
       return h(doc, "div", { class: "sap-msg sap-msg-user" }, message.text);
     }
     const note = endNote(message.stopReason);
+    const answer = message.blocks
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("\n\n");
+    const copy =
+      message.stopReason && answer
+        ? iconButton("action-copy-answer", Copy, () => {
+            Zotero.Utilities.Internal.copyTextToClipboard(answer);
+            setButtonIcon(copy!, "status-answer-copied", Check);
+            window.setTimeout(
+              () => setButtonIcon(copy!, "action-copy-answer", Copy),
+              1200,
+            );
+          })
+        : null;
     return h(
       doc,
-      "div",
-      { class: "sap-msg sap-msg-assistant" },
+      "article",
+      {
+        class: "sap-msg sap-msg-assistant",
+        "aria-busy": String(!message.stopReason),
+      },
       ...message.blocks.map(renderBlock),
       ...(note
         ? [h(doc, "div", { class: "sap-msg-note" }, getString(note))]
         : []),
+      copy ? h(doc, "div", { class: "sap-answer-actions" }, copy) : null,
     );
   }
 
@@ -233,7 +350,7 @@ export function createChatView(doc: Document, chat: ChatController): ChatView {
 
   function render(state: ChatState): void {
     root.dataset.connection = state.connection;
-    agentName.textContent = state.agentName ?? "";
+    agentName.textContent = state.agentName ?? getString("chat-title");
     statusLabel.textContent = statusText(state);
     connect.hidden = state.connection !== "disconnected";
     reconnect.hidden = state.connection !== "error";

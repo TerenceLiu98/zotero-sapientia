@@ -227,20 +227,3 @@ export function scratch(): HTMLElement {
   doc.documentElement!.append(container);
   return container;
 }
-
-/** The chat sections the plugin has registered with Zotero. */
-export function chatSections(): { paneID: string }[] {
-  const manager = Zotero.ItemPaneManager as unknown as {
-    customSectionData: { options: { pluginID: string; paneID: string }[] };
-  };
-  return manager.customSectionData.options.filter(
-    (option) => option.pluginID === ADDON_ID,
-  );
-}
-
-/** The id the plugin's chat section is registered under. */
-export function chatPaneID(): string {
-  const [section] = chatSections();
-  assert.isOk(section, "the chat section is registered");
-  return section!.paneID;
-}

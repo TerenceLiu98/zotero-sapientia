@@ -1,7 +1,8 @@
 import { assert } from "chai";
+import { CHAT_TOGGLE_ID } from "../src/modules/sidebar/section";
 import {
-  chatSections,
   isAlive,
+  mainWindow,
   makeAgent,
   plugin,
   type FixtureAgent,
@@ -34,7 +35,7 @@ describe("Zotero quitting", function () {
     assert.isUndefined(Zotero.Sapientia, "the plugin is gone");
     await until(async () => !(await isAlive(pid)), { timeout: 8000 });
     assert.lengthOf(
-      chatSections(),
+      mainWindow().document.querySelectorAll(`#${CHAT_TOGGLE_ID}`),
       1,
       "a quitting Zotero leaves the registrations to the restart",
     );

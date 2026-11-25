@@ -1,12 +1,12 @@
 # zotero-sapientia
 
-Zotero 10 plugin for chatting with your own Agent Client Protocol (ACP) agent from the item pane.
+Zotero 10 plugin for chatting with your own Agent Client Protocol (ACP) agent in a sidebar alongside the library and reader tabs.
 
 ## Build and install
 
 Run `npm ci` and `npm run build` with Node.js 22 or newer. Install the `.xpi` from `.scaffold/build` through Zotero's **Tools → Plugins** menu.
 
-Open **Settings → Zotero ACP Agent** and save an agent profile with its executable, arguments, working directory, and any required environment variables. Select a default agent, then open the **Agent** section on a library item and send a prompt. The executable must speak ACP over stdio. Use an absolute path if the executable is outside Zotero's PATH.
+Open **Settings → Zotero ACP Agent** and save an agent profile with its executable, arguments, working directory, and any required environment variables. Select a default agent, then use the **Zotero ACP Agent** toolbar button to open the sidebar and send a prompt. The executable must speak ACP over stdio. Use an absolute path if the executable is outside Zotero's PATH.
 
 ## Development
 
