@@ -1,4 +1,5 @@
 import { config } from "../../../package.json";
+import { discoverAgentProfiles } from "../../agents/discovery";
 import {
   formatArgs,
   isValidEnvName,
@@ -61,6 +62,7 @@ export function renderSettingsPane(
   style.textContent = `${SETTINGS_STYLES}\n${COMBOBOX_STYLES}`;
 
   let profiles = loadProfiles();
+  let detected: AgentProfile[] = [];
   /** The agent being added or edited; null while the editor is closed. */
   let draft: { id: string } | null = null;
   /** The id of one of the pane's elements. */
@@ -322,6 +324,8 @@ export function renderSettingsPane(
 
   function commit(): void {
     saveProfiles(profiles);
+    if (detected.some((profile) => profile.id === getDefaultProfileId()))
+      return;
     const defaultId = getDefaultProfile(profiles)?.id ?? "";
     if (getDefaultProfileId() !== defaultId) {
       setDefaultProfileId(defaultId);
@@ -387,14 +391,15 @@ export function renderSettingsPane(
   }
 
   function renderDefaultAgent(): void {
+    const available = [...profiles, ...detected];
     defaultAgent.setOptions(
-      profiles.map((profile) => ({
+      available.map((profile) => ({
         value: profile.id,
         label: profile.name,
-        hint: profile.command,
+        hint: profiles.includes(profile) ? profile.command : undefined,
       })),
     );
-    defaultAgent.setValue(getDefaultProfile(profiles)?.id ?? null);
+    defaultAgent.setValue(getDefaultProfile(available)?.id ?? null);
   }
 
   closeEditor();
@@ -417,6 +422,11 @@ export function renderSettingsPane(
     true,
   );
   let disposed = false;
+  void discoverAgentProfiles().then((result) => {
+    if (disposed) return;
+    detected = result;
+    renderDefaultAgent();
+  });
   const dispose = () => {
     if (disposed) {
       return;

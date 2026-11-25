@@ -1,9 +1,11 @@
 import { RequestError } from "@agentclientprotocol/sdk";
 import type * as acp from "@agentclientprotocol/sdk";
 import { secretValues } from "../agents/secrets";
+import { discoverAgentProfiles } from "../agents/discovery";
 import { defaultWorkspace, resolveLaunchSpec } from "../agents/launch";
 import {
   getDefaultProfile,
+  getDefaultProfileId,
   loadProfiles,
   setDefaultProfileId,
 } from "../agents/store";
@@ -118,12 +120,14 @@ export class ChatController {
   }
 
   async selectAgent(id: string): Promise<void> {
+    if (this.turn || this.connecting) return;
+    const local = loadProfiles().some((profile) => profile.id === id);
     if (
-      this.turn ||
-      this.connecting ||
-      !loadProfiles().some((profile) => profile.id === id)
+      !local &&
+      !(await discoverAgentProfiles()).some((profile) => profile.id === id)
     )
       return;
+    if (this.turn || this.connecting) return;
     setDefaultProfileId(id);
     if (this.connection && this.profileId !== id) await this.disconnect();
     if (this.profileId !== id) {
@@ -298,7 +302,16 @@ export class ChatController {
     if (this.connection) {
       return true;
     }
-    const profile = getDefaultProfile(loadProfiles());
+    const saved = loadProfiles();
+    const defaultId = getDefaultProfileId();
+    const profile =
+      saved.find((entry) => entry.id === defaultId) ??
+      getDefaultProfile(
+        !defaultId && saved.length
+          ? saved
+          : [...saved, ...(await discoverAgentProfiles())],
+      );
+    if (signal.aborted) return false;
     if (!profile) {
       return this.fail(new UserError("agent-not-configured"));
     }

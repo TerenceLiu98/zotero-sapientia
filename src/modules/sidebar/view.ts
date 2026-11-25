@@ -79,7 +79,6 @@ export function createChatView(
     send: (text) => chat.send(text),
     stop: () => chat.stop(),
     selectAgent: (id) => chat.selectAgent(id),
-    openSettings,
   });
   const connect = button("action-connect", Power, () => void chat.connect());
   const reconnect = button(

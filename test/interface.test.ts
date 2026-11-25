@@ -432,9 +432,13 @@ describe("the settings pane", function () {
     )!;
     input.dispatchEvent(new Event("focus"));
     assert.equal(input.getAttribute("aria-expanded"), "true", "the list opens");
-    assert.lengthOf(
-      doc().querySelectorAll("#sapientia-prefs [role=option]"),
-      2,
+    const choices = doc().querySelectorAll("#sapientia-prefs [role=option]");
+    assert.deepEqual(
+      [
+        choices[0]?.getAttribute("data-value"),
+        choices[1]?.getAttribute("data-value"),
+      ],
+      ["first", "second"],
     );
 
     press(window, input, "ArrowDown");
@@ -510,6 +514,12 @@ describe("the docked chat panel", function () {
 
     const composer = pane.querySelector("textarea")!;
     assert.equal(doc.activeElement, composer);
+    const focused = window.getComputedStyle(composer)!;
+    assert.equal(focused.outlineStyle, "none");
+    assert.equal(focused.boxShadow, "none");
+    assert.isNull(
+      pane.querySelector('.sap-chat-composer [aria-label="Agent settings"]'),
+    );
     const grip = pane.querySelector<HTMLElement>("[role=separator]")!;
     assert.equal(grip.getAttribute("aria-valuenow"), "400");
     press(window, grip, "ArrowLeft");

@@ -1,5 +1,7 @@
-import { ArrowUp, ChevronDown, FolderClosed, Settings, Square } from "lucide";
+import { ArrowUp, ChevronDown, Square } from "lucide";
 import { config } from "../../../package.json";
+import { discoverAgentProfiles } from "../../agents/discovery";
+import type { AgentProfile } from "../../agents/profile";
 import { getDefaultProfile, loadProfiles } from "../../agents/store";
 import type { ChatState } from "../../chat/controller";
 import { getString } from "../../utils/locale";
@@ -9,7 +11,6 @@ interface ComposerActions {
   send(text: string): Promise<boolean>;
   stop(): Promise<void>;
   selectAgent(id: string): Promise<void>;
-  openSettings(): void;
 }
 
 export function createComposer(doc: Document, actions: ComposerActions) {
@@ -36,14 +37,6 @@ export function createComposer(doc: Document, actions: ComposerActions) {
       lucideIcon(doc, ChevronDown, 13),
     ),
   );
-  const settingsLabel = h(doc, "span", {
-    class: "sap-composer-settings-label",
-  });
-  const settings = h(doc, "button", {
-    class: "sap-composer-settings",
-    type: "button",
-    click: actions.openSettings,
-  });
   const send = iconButton(
     doc,
     getString("action-send"),
@@ -65,12 +58,13 @@ export function createComposer(doc: Document, actions: ComposerActions) {
       input,
       h(doc, "div", { class: "sap-composer-toolbar" }, agentPicker, send),
     ),
-    h(doc, "div", { class: "sap-composer-tray" }, settings),
   );
 
   let state: ChatState | undefined;
   let submitting = false;
   let switching = false;
+  let discoveredProfiles: AgentProfile[] = [];
+  let disposed = false;
 
   function resize(): void {
     input.style.height = "auto";
@@ -95,7 +89,7 @@ export function createComposer(doc: Document, actions: ComposerActions) {
   }
 
   function renderProfiles(): void {
-    const profiles = loadProfiles();
+    const profiles = [...loadProfiles(), ...discoveredProfiles];
     const selected = getDefaultProfile(profiles);
     picker.replaceChildren(
       ...profiles.map(({ id, name }) => h(doc, "option", { value: id }, name)),
@@ -103,21 +97,6 @@ export function createComposer(doc: Document, actions: ComposerActions) {
     picker.value = selected?.id ?? "";
     picker.title = selected?.name ?? "";
     agentPicker.hidden = !selected;
-    const settingsTitle = getString(
-      selected ? "prefs-agent-cwd" : "action-agent-settings",
-    );
-    const workspace = selected?.cwd;
-    settings.title = workspace || settingsTitle;
-    settings.setAttribute("aria-label", settingsTitle);
-    settingsLabel.textContent =
-      workspace && PathUtils.isAbsolute(workspace)
-        ? PathUtils.filename(workspace) || workspace
-        : workspace || settingsTitle;
-    settings.dataset.workspace = String(Boolean(selected));
-    settings.replaceChildren(
-      lucideIcon(doc, selected ? FolderClosed : Settings, 15),
-      settingsLabel,
-    );
   }
 
   async function submit(): Promise<void> {
@@ -184,6 +163,11 @@ export function createComposer(doc: Document, actions: ComposerActions) {
   );
   renderProfiles();
   renderControls();
+  void discoverAgentProfiles().then((profiles) => {
+    if (disposed) return;
+    discoveredProfiles = profiles;
+    renderProfiles();
+  });
 
   return {
     element,
@@ -193,6 +177,8 @@ export function createComposer(doc: Document, actions: ComposerActions) {
       renderControls();
     },
     destroy() {
+      if (disposed) return;
+      disposed = true;
       Zotero.Prefs.unregisterObserver(profileObserver);
       Zotero.Prefs.unregisterObserver(defaultObserver);
     },

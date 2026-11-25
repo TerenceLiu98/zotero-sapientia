@@ -10,11 +10,7 @@ export const COMPOSER_STYLES = `
   margin-bottom: 12px;
   border: 1px solid var(--color-border);
   border-radius: 16px;
-  background: var(--fill-quinary);
-  box-shadow: 0 2px 5px color-mix(in srgb, var(--fill-primary) 7%, transparent);
-}
-.sap-chat-composer:focus-within {
-  border-color: var(--color-focus-border);
+  background: var(--color-control);
 }
 .sap-composer-card {
   display: flex;
@@ -22,9 +18,6 @@ export const COMPOSER_STYLES = `
   gap: 14px;
   min-width: 0;
   padding: 11px 10px 9px;
-  border-radius: 14px;
-  background: var(--color-control);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--fill-primary) 11%, transparent);
   cursor: text;
 }
 .sap-chat-composer .sap-chat-input {
@@ -39,7 +32,10 @@ export const COMPOSER_STYLES = `
   color: inherit;
   font-size: inherit;
   line-height: 1.5;
-  outline: none;
+}
+.sap-chat-composer textarea.sap-chat-input:is(:focus, :focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
 }
 .sap-chat-composer .sap-chat-input::placeholder {
   color: var(--fill-secondary);
@@ -72,8 +68,7 @@ export const COMPOSER_STYLES = `
   text-overflow: ellipsis;
   cursor: pointer;
 }
-.sap-composer-agent-select:hover:enabled,
-.sap-chat-composer button.sap-composer-settings:hover {
+.sap-composer-agent-select:hover:enabled {
   background: var(--fill-quinary);
 }
 .sap-composer-agent-select:disabled {
@@ -98,33 +93,6 @@ export const COMPOSER_STYLES = `
   padding: 0;
   border: 0;
   cursor: pointer;
-}
-.sap-chat-composer button.sap-composer-settings {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  min-width: 0;
-  padding: 3px 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fill-secondary);
-  font-size: 11px;
-  cursor: pointer;
-}
-.sap-composer-tray {
-  display: flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 4px 10px;
-}
-.sap-composer-settings svg { flex: none; }
-.sap-composer-settings[data-workspace="true"] svg { color: var(--accent-blue); }
-.sap-composer-settings-label {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .sap-chat-composer button.sap-composer-send {
   border-radius: 8px;

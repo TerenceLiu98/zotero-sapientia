@@ -6,7 +6,9 @@ Zotero 10 plugin for chatting with your own Agent Client Protocol (ACP) agent in
 
 Run `npm ci` and `npm run build` with Node.js 22 or newer. Install the `.xpi` from `.scaffold/build` through Zotero's **Tools → Plugins** menu.
 
-Open **Settings → Zotero ACP Agent** and save an agent profile with its executable, arguments, working directory, and any required environment variables. Select a default agent, then use the **Zotero ACP Agent** toolbar button to open the sidebar and send a prompt. The executable must speak ACP over stdio. Use an absolute path if the executable is outside Zotero's PATH.
+Open the sidebar from the **Zotero ACP Agent** toolbar button. The composer lists the Claude Code, Codex, and OpenCode installations it finds on this machine. Claude Code and Codex use an ACP adapter, which may be downloaded by `npx` on first use when no adapter is installed. OpenCode uses its built-in ACP command.
+
+For another ACP agent, open **Settings → Zotero ACP Agent** and save an agent profile with its executable, arguments, working directory, and any required environment variables. Use an absolute executable path if needed.
 
 ## Development
 
