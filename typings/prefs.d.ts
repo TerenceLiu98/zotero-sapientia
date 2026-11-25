@@ -10,6 +10,7 @@ declare namespace _ZoteroTypes {
       "profiles": string;
       "defaultProfileId": string;
       "readScope": string;
+      "allowTagDeletion": boolean;
     };
   }
 }

@@ -270,8 +270,7 @@ describe("paper context in the Zotero reader", function () {
       () => {},
       "Ask Agent",
     );
-    let proposal:
-      import("../src/context/paper-tools").WriteProposal | undefined;
+    let proposal: import("../src/writes/request").WriteProposal | undefined;
     const chat = new ChatController(async (pending, signal) => {
       proposal = pending;
       await new Promise<void>((resolve) => {
@@ -464,11 +463,11 @@ describe("paper context in the Zotero reader", function () {
         ],
       ]);
       await until(() => !!proposal);
-      assert.deepInclude(proposal, {
+      assert.deepInclude(proposal!.operations[0], {
         operation: "create_note",
         change: { html: "<p>Cancelled change</p>" },
       });
-      assert.equal(proposal!.target.itemKey, item.key);
+      assert.equal(proposal!.operations[0].target.itemKey, item.key);
       assert.deepEqual(item.getNotes(), [note.id]);
       await chat.stop();
       assert.isTrue(await write);

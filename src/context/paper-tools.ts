@@ -1,5 +1,14 @@
 import { z } from "zod";
 import {
+  itemIdentifier,
+  prepareWrite,
+  PROPOSE_ZOTERO_WRITE,
+  writeInputSchema,
+  writeSchema,
+  type WriteHandoff,
+} from "../writes/request";
+import { writeError } from "../writes/approval";
+import {
   describeAttachment,
   paperAttachments,
   pdfURI,
@@ -9,17 +18,10 @@ import {
 import { readAllowed, type ReadMaterial } from "./read-scope";
 
 export const READ_CURRENT_PAPER = "read_current_paper";
-export const PROPOSE_ZOTERO_WRITE = "propose_zotero_write";
 
 const target = {
   turnId: z.string().min(1).describe("The turn ID supplied in the prompt."),
-  itemKey: z
-    .string()
-    .min(1)
-    .optional()
-    .describe("The current paper's item key."),
-  itemID: z.number().int().positive().optional(),
-  libraryID: z.number().int().positive().optional(),
+  ...itemIdentifier,
 };
 const attachmentTarget = {
   ...target,
@@ -33,16 +35,6 @@ const pdfArgs = z.strictObject({
   startPage: page.optional(),
   endPage: page.optional(),
 });
-const writeArgs = z.strictObject({
-  ...target,
-  operation: z.enum(["create_note", "edit_note", "add_tags"]),
-  change: z.record(z.string(), z.unknown()),
-});
-type WriteRequest = z.infer<typeof writeArgs>;
-export type WriteProposal = Pick<WriteRequest, "operation" | "change"> & {
-  target: Pick<PaperContext, "itemID" | "itemKey" | "libraryID" | "title">;
-};
-
 export interface ToolTurn {
   paper: PaperContext;
   readSelection?: () => SelectedText | undefined;
@@ -50,10 +42,6 @@ export interface ToolTurn {
 }
 
 export type ResolveTurn = (id: string) => ToolTurn | undefined;
-export type WriteHandoff = (
-  proposal: WriteProposal,
-  signal: AbortSignal,
-) => Promise<void>;
 
 const readers = {
   read_paper_metadata: {
@@ -95,12 +83,29 @@ const readers = {
 >;
 
 export function listPaperTools() {
-  return Object.entries(readers).map(([name, { description, schema }]) => ({
-    name,
-    description,
-    inputSchema: z.toJSONSchema(schema, { target: "draft-7" }),
-    annotations: { readOnlyHint: true, openWorldHint: false },
-  }));
+  const reads = Object.entries(readers).map(
+    ([name, { description, schema }]) => ({
+      name,
+      description,
+      inputSchema: z.toJSONSchema(schema, { target: "draft-7" }),
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    }),
+  );
+  return [
+    ...reads,
+    {
+      name: PROPOSE_ZOTERO_WRITE,
+      description:
+        "Request user approval to create or edit child notes, or add or remove tags. Supply a single operation or an ordered batch. Wait for the result before reporting any changes.",
+      inputSchema: writeInputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+  ];
 }
 
 function toolText(text: string) {
@@ -244,30 +249,32 @@ export async function callPaperTool(
   handoff: WriteHandoff,
 ) {
   if (name === PROPOSE_ZOTERO_WRITE) {
-    const parsed = writeArgs.safeParse(input);
-    if (!parsed.success) return toolError("Invalid Zotero write proposal.");
-    const { turnId, operation, change } = parsed.data;
-    const turn = active(turnId);
-    const item = turn && currentItem(turn, parsed.data);
-    if (!turn || !item)
-      return toolError("The requested target is outside the active turn.");
-    await handoff(
-      {
-        operation,
-        change,
-        target: {
-          itemID: item.id,
-          itemKey: item.key,
-          libraryID: item.libraryID,
-          title: item.getDisplayTitle(),
-        },
-      },
-      turn.signal,
-    );
-    return toolResult({
-      status: "cancelled",
-      message: "Zotero writes are disabled in this release.",
-    });
+    const parsed = writeSchema.safeParse(input);
+    if (!parsed.success)
+      return toolError(
+        `Invalid Zotero write proposal: ${z.prettifyError(parsed.error)}`,
+      );
+    const turn = active(parsed.data.turnId);
+    if (!turn)
+      return toolError(
+        "The write proposal requires an active turn with a paper.",
+      );
+    try {
+      const proposal = await prepareWrite(parsed.data, turn.paper);
+      const result = await handoff(proposal, turn.signal);
+      return toolResult({
+        status: result?.status ?? "cancelled",
+        outcomes:
+          result?.outcomes.map(
+            ({ target: { itemID, itemKey, libraryID }, ...outcome }) => ({
+              ...outcome,
+              target: { itemID, itemKey, libraryID },
+            }),
+          ) ?? [],
+      });
+    } catch (error) {
+      return toolError(writeError(error));
+    }
   }
   if (typeof name !== "string" || !Object.hasOwn(readers, name))
     return toolError("Unknown Zotero tool.");
