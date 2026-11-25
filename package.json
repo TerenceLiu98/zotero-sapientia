@@ -31,6 +31,9 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^2.12.0",
+    "@mdit/plugin-cjk-friendly": "^1.0.0",
+    "@mdit/plugin-katex": "^1.2.1",
+    "katex": "^0.19.1",
     "lucide": "^1.80.0",
     "markdown-it": "^15.0.3",
     "zod": "^4.0.0"

@@ -1,3 +1,6 @@
+import { cjkFriendly } from "@mdit/plugin-cjk-friendly";
+import { katex } from "@mdit/plugin-katex";
+import { ParseError } from "katex";
 import MarkdownIt from "markdown-it";
 import {
   Check,
@@ -15,9 +18,32 @@ import { h, lucideIcon } from "../ui/dom";
 const MAX_CARDS = 2;
 const PDF_LINK =
   /^zotero:\/\/open-pdf\/(?:library|groups\/\d+)\/items\/[a-z0-9]+(?:\?[^#\s]*)?$/i;
+const PDF_PAGE_LINK = /^#page=([1-9]\d*)$/;
 const WEB_LINK = /^https?:\/\/[^\s/]+/i;
-const markdown = new MarkdownIt({ html: false, breaks: true }).disable("image");
-markdown.validateLink = (url) => WEB_LINK.test(url) || PDF_LINK.test(url);
+const markdown = new MarkdownIt({ html: false, breaks: true })
+  .disable("image")
+  .use(cjkFriendly)
+  .use(katex, { delimiters: "all", trust: false, throwOnError: true });
+for (const rule of ["math_inline", "math_block"] as const) {
+  const render = markdown.renderer.rules[rule]!;
+  markdown.renderer.rules[rule] = (...args) => {
+    try {
+      return render(...args);
+    } catch (error) {
+      if (!(error instanceof ParseError)) throw error;
+      const [tokens, index] = args;
+      const { content, markup } = tokens[index];
+      const close =
+        markup === "\\(" ? "\\)" : markup === "\\[" ? "\\]" : markup;
+      const raw = markdown.utils.escapeHtml(
+        `${markup}${content.trimEnd()}${close}`,
+      );
+      return rule === "math_block" ? `<pre>${raw}</pre>\n` : raw;
+    }
+  };
+}
+markdown.validateLink = (url) =>
+  WEB_LINK.test(url) || PDF_LINK.test(url) || PDF_PAGE_LINK.test(url);
 markdown.renderer.rules.link_open = (
   tokens,
   index,
@@ -47,10 +73,11 @@ interface AnswerOptions {
   onRegenerate?(): void;
 }
 
-interface AnswerState {
+export interface AnswerState {
   text: string;
   streaming: boolean;
   question?: string;
+  pdfUrl?: string;
   regenerate?: boolean;
   stopping?: boolean;
 }
@@ -77,6 +104,7 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
   });
   let sourceKey = "";
   let currentText: string | undefined;
+  let currentPdfUrl: string | undefined;
   let currentSources: AnswerSource[] = [];
   let currentPlainText = "";
   let copyTimer: number | undefined;
@@ -152,6 +180,7 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
     text,
     streaming,
     question: prompt,
+    pdfUrl,
     regenerate: canRegenerate,
     stopping,
   }: AnswerState) {
@@ -169,8 +198,9 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
       stop.disabled = Boolean(stopping);
     }
     actions.hidden = streaming && !stop;
-    if (currentText === text) return;
+    if (currentText === text && currentPdfUrl === pdfUrl) return;
     currentText = text;
+    currentPdfUrl = pdfUrl;
 
     const before = Array.from<HTMLAnchorElement>(body.querySelectorAll("a"));
     const active = before.find((link) => link === doc.activeElement);
@@ -181,7 +211,7 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
           )
           .indexOf(active)
       : -1;
-    const result = renderMarkdown(doc, text, options.id);
+    const result = renderMarkdown(doc, text, options.id, pdfUrl);
     currentSources = result.sources;
     currentPlainText = result.plainText;
     body.replaceChildren(result.content);
@@ -210,11 +240,28 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
   };
 }
 
-function renderMarkdown(doc: Document, text: string, id: string) {
+function renderMarkdown(
+  doc: Document,
+  text: string,
+  id: string,
+  pdfUrl?: string,
+) {
   const template = h(doc, "template");
   template.innerHTML = markdown.render(text);
   const content = template.content;
   const plainContent = content.cloneNode(true) as DocumentFragment;
+  for (const formula of plainContent.querySelectorAll(".katex")) {
+    const tex = formula.querySelector(
+      'annotation[encoding="application/x-tex"]',
+    )?.textContent;
+    if (tex) {
+      formula.replaceWith(
+        formula.parentElement?.classList.contains("katex-display")
+          ? `$$\n${tex.trimEnd()}\n$$`
+          : `$${tex}$`,
+      );
+    }
+  }
   for (const br of plainContent.querySelectorAll("br")) br.replaceWith("\n");
   const plainText = plainContent.textContent?.trim() ?? "";
   const sources = new Map<string, AnswerSource>();
@@ -222,9 +269,15 @@ function renderMarkdown(doc: Document, text: string, id: string) {
     content.querySelectorAll("a[data-sap-href]"),
   );
   anchors.forEach((link, index) => {
-    const url = link.getAttribute("data-sap-href") ?? "";
+    const href = link.getAttribute("data-sap-href") ?? "";
+    const url = resolveSourceUrl(href, pdfUrl);
     link.removeAttribute("data-sap-href");
-    if (!markdown.validateLink(url)) return;
+    if (!url) {
+      link.replaceWith(
+        ...Array.from(link.childNodes).filter((child) => child !== null),
+      );
+      return;
+    }
     const source =
       sources.get(url) ?? describeSource(url, link.textContent?.trim() ?? "");
     sources.set(url, source);
@@ -252,6 +305,17 @@ function renderMarkdown(doc: Document, text: string, id: string) {
     chip.append(link, preview);
   });
   return { content, plainText, sources: Array.from(sources.values()) };
+}
+
+function resolveSourceUrl(href: string, pdfUrl?: string): string | undefined {
+  if (WEB_LINK.test(href) || PDF_LINK.test(href)) return href;
+  const page = PDF_PAGE_LINK.exec(href)?.[1];
+  if (!page || !Number.isSafeInteger(Number(page))) return;
+  if (!pdfUrl || !PDF_LINK.test(pdfUrl)) return;
+
+  const url = new URL(pdfUrl);
+  url.searchParams.set("page", page);
+  return url.href;
 }
 
 function describeSource(url: string, text: string): AnswerSource {

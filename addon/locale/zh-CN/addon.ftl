@@ -34,6 +34,10 @@ composer-placeholder = 向你的 Agent 提问…
 composer-agent-model = Agent 和模型
 composer-models = 模型
 composer-models-loading = 正在加载模型…
+context-selection-number = 所选文字 { $number }
+context-add-selection = Ask Agent
+context-remove-selection = 移除选区
+context-selection-source = { $title } · 第 { $page } 页
 
 # 回合的结束方式
 turn-cancelled = 已停止。

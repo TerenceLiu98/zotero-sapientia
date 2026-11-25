@@ -102,6 +102,7 @@ export const ANSWER_STYLES = `
   position: relative;
   min-width: 0;
   overflow-wrap: anywhere;
+  user-select: text;
   line-height: 1.55;
 }
 .sap-answer-text > :first-child { margin-top: 0; }
@@ -117,6 +118,12 @@ export const ANSWER_STYLES = `
   border-radius: 6px;
 }
 .sap-answer-text code { font-family: ui-monospace, monospace; }
+.sap-answer-text .katex { font-family: KaTeX_Main, "Times New Roman", serif; }
+.sap-answer-text .katex-block {
+  overflow-x: auto;
+  overflow-wrap: normal;
+  scrollbar-width: thin;
+}
 .sap-answer .sap-citation {
   display: inline;
   padding: 1px 5px;

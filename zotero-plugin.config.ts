@@ -36,6 +36,13 @@ export default defineConfig({
         target: "firefox115",
         outfile: `.scaffold/build/addon/content/scripts/${pkg.config.addonRef}.js`,
       },
+      {
+        entryPoints: ["node_modules/katex/dist/katex.min.css"],
+        bundle: true,
+        loader: { ".woff2": "file", ".woff": "file", ".ttf": "file" },
+        assetNames: "fonts/[name]",
+        outfile: ".scaffold/build/addon/content/styles/katex.css",
+      },
     ],
   },
 

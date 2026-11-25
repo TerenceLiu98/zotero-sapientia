@@ -30,11 +30,13 @@ import { once } from "node:events";
 import {
   appendFileSync,
   closeSync,
+  existsSync,
   readFileSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
 import { createInterface } from "node:readline";
+import { join } from "node:path";
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => {
@@ -136,7 +138,44 @@ function record(session, value) {
   writeStore(sessions);
 }
 
-async function runTurn(id, session, text) {
+async function readCurrentPaper(server, turnId) {
+  const headers = Object.fromEntries(
+    server.headers.map(({ name, value }) => [name, value]),
+  );
+  async function request(id, method, params) {
+    const response = await fetch(server.url, {
+      method: "POST",
+      headers: {
+        ...headers,
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        "MCP-Protocol-Version": "2025-11-25",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+      signal: AbortSignal.timeout(5000),
+    });
+    return id === undefined ? response.status : (await response.json()).result;
+  }
+  const initialized = await request(1, "initialize", {
+    protocolVersion: "2025-11-25",
+    capabilities: {},
+    clientInfo: { name: "fixture", version: "1.0.0" },
+  });
+  if (!initialized?.capabilities.tools)
+    throw new Error("MCP did not offer tools");
+  if ((await request(undefined, "notifications/initialized")) !== 202)
+    throw new Error("MCP did not accept initialization");
+  const catalog = await request(2, "tools/list");
+  if (!catalog?.tools.some(({ name }) => name === "read_current_paper"))
+    throw new Error("MCP did not list the PDF reader");
+  return request(3, "tools/call", {
+    name: "read_current_paper",
+    arguments: { turnId },
+  });
+}
+
+async function runTurn(id, session, prompt) {
+  const text = prompt.find((block) => block.type === "text")?.text ?? "";
   const [, command, ...rest] = /^([\w-]+)(?::(.*))?$/.exec(text) ?? [];
   const say = (value) => {
     update(session.sessionId, value);
@@ -160,6 +199,50 @@ async function runTurn(id, session, text) {
         await sleep(30);
         if (turn.cancelled) return end("cancelled");
         chunk(`${word} `);
+      }
+      return end("end_turn");
+    }
+    case "math-stream":
+    case "math-complete": {
+      const longMath = Array(45).fill("x").join("+");
+      const chunks = [
+        "- **Aggre",
+        "gator（汇总型）**把政策调到平均立场。\n\n",
+        String.raw`Normal distribution \(X\sim\mathcal N(\mu,\sigma^2)\) and $E=mc^2$.`,
+        "\n\n$$\n",
+        String.raw`f(x)=\frac{1}{\sigma\sqrt{2\pi}}e^{-(x-\mu)^2/(2\sigma^2)}`,
+        `\n$$\n\n\\[\n${longMath}\n\\]\n\n`,
+        "[p. 3](zotero://open-pdf/library/items/",
+        "ABCD1234?page=3)\n\n```text\n$code$\n```\n\n",
+        "Price: $5 and $10. Invalid: $\\unknownCommand$.\n\n$$",
+      ];
+      if (command === "math-stream") {
+        chunk(chunks[0]);
+        await sleep(300);
+        say({
+          sessionUpdate: "tool_call",
+          toolCallId: "math",
+          title: "Check notation",
+          status: "completed",
+        });
+        chunk(chunks[1]);
+        chunk(chunks[2]);
+        chunk(chunks[3]);
+        await sleep(300);
+        say({
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "Writing the formula." },
+        });
+        for (const part of chunks.slice(4, 7)) chunk(part);
+        say({
+          sessionUpdate: "tool_call",
+          toolCallId: "reference",
+          title: "Check reference",
+          status: "completed",
+        });
+        for (const part of chunks.slice(7)) chunk(part);
+      } else {
+        chunk(chunks.join(""));
       }
       return end("end_turn");
     }
@@ -208,6 +291,49 @@ async function runTurn(id, session, text) {
         }
         chunk(`chunk ${index} `);
       }
+      return end("end_turn");
+    }
+    case "cite": {
+      chunk("**Result**\n\n");
+      const switched = join(process.cwd(), "paper-switched");
+      for (let step = 0; step < 150 && !existsSync(switched); step++) {
+        await sleep(50);
+        if (turn.cancelled) return end("cancelled");
+      }
+      if (!existsSync(switched)) throw new Error("Reader did not switch PDFs");
+      const metadata = prompt.find((block) =>
+        block.text?.startsWith("Current Zotero paper (metadata):\n"),
+      );
+      const { pdfTool } = JSON.parse(metadata.text.split("\n", 2)[1]);
+      const { turnId } = pdfTool;
+      session.previousPdfTurnId = turnId;
+      const result = await readCurrentPaper(session.mcpServers[0], turnId);
+      log({ event: "pdf-text", result });
+      if (turn.cancelled) return end("cancelled");
+      chunk(
+        "[A long citation label for the specific source passage on page 2](#page=2)\n\n```text\nSource citation\n```",
+      );
+      return end("end_turn");
+    }
+    case "recall": {
+      const stale = await readCurrentPaper(
+        session.mcpServers[0],
+        session.previousPdfTurnId,
+      );
+      log({ event: "stale-pdf-text", result: stale });
+      const cited = session.updates.some((update) =>
+        update.content?.text?.includes("Source citation"),
+      );
+      chunk(cited ? "Earlier result: Source citation" : "No earlier result");
+      return end("end_turn");
+    }
+    case "remote": {
+      const response = await fetch(arg("remote-url"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prompt),
+      });
+      chunk(await response.text());
       return end("end_turn");
     }
     case "crash": {
@@ -337,11 +463,7 @@ async function handle(message) {
       if (!session) return refuse(id, -32002, "session not found");
       turn = { cancelled: false };
       try {
-        await runTurn(
-          id,
-          session,
-          params.prompt.find((block) => block.type === "text")?.text ?? "",
-        );
+        await runTurn(id, session, params.prompt);
       } finally {
         turn = null;
       }
@@ -355,8 +477,9 @@ async function handle(message) {
 createInterface({ input: process.stdin })
   .on("line", (line) => {
     if (line.trim()) {
-      void handle(JSON.parse(line)).catch((error) =>
-        refuse(null, -32603, String(error)),
+      const message = JSON.parse(line);
+      void handle(message).catch((error) =>
+        refuse(message.id ?? null, -32603, String(error)),
       );
     }
   })

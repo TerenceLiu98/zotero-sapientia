@@ -34,6 +34,10 @@ composer-placeholder = Ask your agent…
 composer-agent-model = Agent and model
 composer-models = Models
 composer-models-loading = Loading models…
+context-selection-number = Selected text { $number }
+context-add-selection = Ask Agent
+context-remove-selection = Remove selection
+context-selection-source = { $title }, p. { $page }
 
 # How a turn ended
 turn-cancelled = Stopped.

@@ -493,6 +493,101 @@ describe("the settings pane", function () {
 describe("the docked chat panel", function () {
   this.timeout(60000);
 
+  it("renders formulas and CJK emphasis across stream events at both sidebar widths", async function () {
+    await reset();
+    const window = mainWindow();
+    const doc = window.document;
+    const pane = doc.getElementById(CHAT_PANE_ID) as XULElement;
+    const toggle = doc.getElementById(CHAT_TOGGLE_ID)!;
+    const togglePane = () => toggle.dispatchEvent(new window.Event("command"));
+    const agent = await makeAgent("math answers");
+    use(agent.profile());
+    togglePane();
+    const grip = pane.querySelector<HTMLElement>("[role=separator]")!;
+    const initialWidth = Number(grip.getAttribute("aria-valuenow"));
+    function resizeTo(target: number) {
+      const width = Number(grip.getAttribute("aria-valuenow"));
+      for (let offset = Math.abs(width - target); offset > 0; offset -= 20)
+        press(window, grip, width < target ? "ArrowLeft" : "ArrowRight");
+      assert.equal(grip.getAttribute("aria-valuenow"), String(target));
+    }
+    const internal = Zotero.Utilities.Internal;
+    const originalCopy = internal.copyTextToClipboard;
+    try {
+      resizeTo(400);
+      const chat = plugin().chat;
+      const turn = chat.send("math-stream");
+      await until(() =>
+        pane.querySelector(".sap-answer-text")?.textContent?.includes("Aggre"),
+      );
+      assert.equal(chat.getState().execution, "executing");
+      assert.isTrue(await turn);
+      const answer = pane.querySelector<HTMLElement>(".sap-answer-text")!;
+      assert.equal(
+        answer.querySelector("strong")?.textContent,
+        "Aggregator（汇总型）",
+      );
+      assert.lengthOf(answer.querySelectorAll(".katex"), 4);
+      assert.lengthOf(answer.querySelectorAll(".katex-block"), 2);
+      assert.include(
+        answer.querySelector(".katex-block annotation")!.textContent!,
+        "f(x)=\\frac",
+      );
+      assert.equal(
+        answer.querySelector("pre code")?.textContent?.trim(),
+        "$code$",
+      );
+      assert.include(
+        answer.textContent!,
+        "Price: $5 and $10. Invalid: $\\unknownCommand$.",
+      );
+      assert.isTrue(answer.textContent!.trimEnd().endsWith("$$"));
+      assert.equal(
+        answer.querySelector(".sap-citation")?.getAttribute("href"),
+        "zotero://open-pdf/library/items/ABCD1234?page=3",
+      );
+
+      for (const width of [400, 300]) {
+        resizeTo(width);
+        const blocks = answer.querySelectorAll<HTMLElement>(".katex-block");
+        const longFormula = blocks[1];
+        assert.equal(window.getComputedStyle(longFormula)!.overflowX, "auto");
+        assert.isAbove(longFormula.scrollWidth, longFormula.clientWidth);
+        assert.isAtMost(answer.scrollWidth, answer.clientWidth);
+      }
+      await doc.fonts.ready;
+      assert.isTrue(doc.fonts.check('16px "KaTeX_Main"'));
+      const math = answer.querySelector(".katex")!;
+      assert.include(window.getComputedStyle(math)!.fontFamily, "KaTeX_Main");
+      assert.equal(window.getComputedStyle(answer)!.userSelect, "text");
+      const prose = math.parentElement!.firstChild!;
+      const range = doc.createRange();
+      range.selectNodeContents(prose);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      assert.equal(selection.toString().trim(), "Normal distribution");
+      selection.removeAllRanges();
+      let copied = "";
+      internal.copyTextToClipboard = (text) => (copied = text);
+      pane
+        .querySelector<HTMLButtonElement>('button[aria-label="Copy answer"]')!
+        .click();
+      assert.include(copied, String.raw`$X\sim\mathcal N(\mu,\sigma^2)$`);
+      assert.equal(copied.split("f(x)=").length, 2);
+      assert.include(copied, "$$\nf(x)=");
+
+      assert.isTrue(await chat.send("math-complete"));
+      const answers = pane.querySelectorAll<HTMLElement>(".sap-answer-text");
+      assert.equal(answers[1].textContent, answer.textContent);
+    } finally {
+      internal.copyTextToClipboard = originalCopy;
+      resizeTo(initialWidth);
+      if (!pane.hidden) togglePane();
+      await reset();
+    }
+  });
+
   it("opens from the tab toolbar and preserves the conversation when reopened", async function () {
     await reset();
     const window = mainWindow();
