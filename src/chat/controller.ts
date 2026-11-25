@@ -11,6 +11,7 @@ import {
 } from "../agents/store";
 import { AgentConnection, type AgentEvent } from "../acp/connection";
 import { modelsFromConfig, type SessionModels } from "../acp/models";
+import { READ_CURRENT_PAPER, startPdfTool } from "../context/pdf-tool";
 import { UserError } from "../utils/errors";
 import { logError, redactor } from "../utils/log";
 import { foldUpdate, type ChatMessage, type TurnContext } from "./transcript";
@@ -65,6 +66,7 @@ export class ChatController {
 
   private readonly listeners = new Set<Listener>();
   private connection: AgentConnection | null = null;
+  private pdfTool: ReturnType<typeof startPdfTool> | null = null;
   private sessionCwd: string = defaultWorkspace();
   private sessionId: string | null = null;
   /** The session to offer for restoration once the connection is gone. */
@@ -248,7 +250,7 @@ export class ChatController {
       return false;
     }
 
-    const turn = new Turn(this.nextMessageId());
+    const turn = new Turn(this.nextMessageId(), context);
     this.turn = turn;
     this.update({
       execution: "executing",
@@ -278,7 +280,7 @@ export class ChatController {
     try {
       const response = await connection.prompt(
         sessionId,
-        promptBlocks(prompt, context),
+        promptBlocks(prompt, context, this.pdfTool ? turn.assistantId : null),
       );
       turn.settle();
       if (this.turn === turn) {
@@ -434,6 +436,19 @@ export class ChatController {
       connection.onEvent((event) => {
         if (this.connection === connection) this.handleEvent(event);
       });
+      if (connection.capabilities.mcpCapabilities?.http) {
+        this.pdfTool = startPdfTool((turnId) => {
+          const turn = this.turn;
+          if (
+            this.connection === connection &&
+            this.sessionId &&
+            turn?.assistantId === turnId &&
+            !turn.cancelled
+          ) {
+            return turn.context?.paper?.attachment;
+          }
+        });
+      }
       const restoreId =
         restore && this.restorableSession?.profileId === profile.id
           ? this.restorableSession.id
@@ -460,11 +475,16 @@ export class ChatController {
     restoreId: string | null = null,
   ): Promise<void> {
     this.update({ canRestore: false, models: null });
+    const mcpServers = this.pdfTool ? [this.pdfTool.server] : [];
     if (restoreId && connection.supportsSessionRestore) {
       this.replaying = restoreId;
       let response: acp.LoadSessionResponse | null;
       try {
-        response = await connection.loadSession(restoreId, this.sessionCwd);
+        response = await connection.loadSession(
+          restoreId,
+          this.sessionCwd,
+          mcpServers,
+        );
       } finally {
         this.replaying = null;
       }
@@ -482,6 +502,7 @@ export class ChatController {
     this.update({ messages: [] });
     const { sessionId, configOptions } = await connection.newSession(
       this.sessionCwd,
+      mcpServers,
     );
     if (this.connection !== connection) return;
     this.sessionId = sessionId;
@@ -577,8 +598,10 @@ export class ChatController {
   private async close(connection: AgentConnection): Promise<void> {
     const releaseSecrets = this.releaseSecrets;
     this.releaseSecrets = null;
+    const pdfTool = this.pdfTool;
+    this.pdfTool = null;
     try {
-      await connection.close();
+      await Promise.all([connection.close(), pdfTool?.close()]);
     } finally {
       releaseSecrets?.();
     }
@@ -604,7 +627,10 @@ class Turn {
   /** Set once Stop was pressed; the turn's later updates are dropped. */
   cancelled = false;
 
-  constructor(readonly assistantId: string) {
+  constructor(
+    readonly assistantId: string,
+    readonly context?: TurnContext,
+  ) {
     this.settled = new Promise((resolve) => {
       this.declareSettled = resolve;
     });
@@ -627,7 +653,11 @@ function snapshotContext({ paper, selections }: TurnContext): TurnContext {
   };
 }
 
-function promptBlocks(text: string, context?: TurnContext): acp.ContentBlock[] {
+function promptBlocks(
+  text: string,
+  context: TurnContext | undefined,
+  pdfTurnId: string | null,
+): acp.ContentBlock[] {
   const blocks: acp.ContentBlock[] = [{ type: "text", text }];
   const paper = context?.paper;
   if (paper) {
@@ -641,6 +671,10 @@ function promptBlocks(text: string, context?: TurnContext): acp.ContentBlock[] {
       year,
       attachment,
     } = paper;
+    const pdfTool =
+      attachment && paper.materials.pdfText && pdfTurnId
+        ? { name: READ_CURRENT_PAPER, turnId: pdfTurnId }
+        : undefined;
     blocks.push({
       type: "text",
       text: `Current Zotero paper (metadata):\n${JSON.stringify({
@@ -652,6 +686,7 @@ function promptBlocks(text: string, context?: TurnContext): acp.ContentBlock[] {
         doi,
         year,
         pdf: attachment?.uri,
+        pdfTool,
         page:
           attachment?.pageIndex === undefined
             ? undefined
@@ -664,6 +699,12 @@ function promptBlocks(text: string, context?: TurnContext): acp.ContentBlock[] {
         type: "text",
         text: "Cite known pages in the current PDF using Markdown links such as [p. 3](#page=3). Use the 1-based physical PDF page number.",
       });
+      if (pdfTool) {
+        blocks.push({
+          type: "text",
+          text: "When you need the full PDF text, call the tool named in pdfTool with its turnId.",
+        });
+      }
     }
   }
   if (context?.selections.length) {

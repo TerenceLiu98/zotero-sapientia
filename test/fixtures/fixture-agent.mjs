@@ -30,11 +30,13 @@ import { once } from "node:events";
 import {
   appendFileSync,
   closeSync,
+  existsSync,
   readFileSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
 import { createInterface } from "node:readline";
+import { join } from "node:path";
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => {
@@ -136,6 +138,42 @@ function record(session, value) {
   writeStore(sessions);
 }
 
+async function readCurrentPaper(server, turnId) {
+  const headers = Object.fromEntries(
+    server.headers.map(({ name, value }) => [name, value]),
+  );
+  async function request(id, method, params) {
+    const response = await fetch(server.url, {
+      method: "POST",
+      headers: {
+        ...headers,
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        "MCP-Protocol-Version": "2025-11-25",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+      signal: AbortSignal.timeout(5000),
+    });
+    return id === undefined ? response.status : (await response.json()).result;
+  }
+  const initialized = await request(1, "initialize", {
+    protocolVersion: "2025-11-25",
+    capabilities: {},
+    clientInfo: { name: "fixture", version: "1.0.0" },
+  });
+  if (!initialized?.capabilities.tools)
+    throw new Error("MCP did not offer tools");
+  if ((await request(undefined, "notifications/initialized")) !== 202)
+    throw new Error("MCP did not accept initialization");
+  const catalog = await request(2, "tools/list");
+  if (!catalog?.tools.some(({ name }) => name === "read_current_paper"))
+    throw new Error("MCP did not list the PDF reader");
+  return request(3, "tools/call", {
+    name: "read_current_paper",
+    arguments: { turnId },
+  });
+}
+
 async function runTurn(id, session, prompt) {
   const text = prompt.find((block) => block.type === "text")?.text ?? "";
   const [, command, ...rest] = /^([\w-]+)(?::(.*))?$/.exec(text) ?? [];
@@ -213,7 +251,20 @@ async function runTurn(id, session, prompt) {
     }
     case "cite": {
       chunk("**Result**\n\n");
-      await sleep(1500);
+      const switched = join(process.cwd(), "paper-switched");
+      for (let step = 0; step < 150 && !existsSync(switched); step++) {
+        await sleep(50);
+        if (turn.cancelled) return end("cancelled");
+      }
+      if (!existsSync(switched)) throw new Error("Reader did not switch PDFs");
+      const metadata = prompt.find((block) =>
+        block.text?.startsWith("Current Zotero paper (metadata):\n"),
+      );
+      const { pdfTool } = JSON.parse(metadata.text.split("\n", 2)[1]);
+      const { turnId } = pdfTool;
+      session.previousPdfTurnId = turnId;
+      const result = await readCurrentPaper(session.mcpServers[0], turnId);
+      log({ event: "pdf-text", result });
       if (turn.cancelled) return end("cancelled");
       chunk(
         "[A long citation label for the specific source passage on page 2](#page=2)\n\n```text\nSource citation\n```",
@@ -221,6 +272,11 @@ async function runTurn(id, session, prompt) {
       return end("end_turn");
     }
     case "recall": {
+      const stale = await readCurrentPaper(
+        session.mcpServers[0],
+        session.previousPdfTurnId,
+      );
+      log({ event: "stale-pdf-text", result: stale });
       const cited = session.updates.some((update) =>
         update.content?.text?.includes("Source citation"),
       );
@@ -377,8 +433,9 @@ async function handle(message) {
 createInterface({ input: process.stdin })
   .on("line", (line) => {
     if (line.trim()) {
-      void handle(JSON.parse(line)).catch((error) =>
-        refuse(null, -32603, String(error)),
+      const message = JSON.parse(line);
+      void handle(message).catch((error) =>
+        refuse(message.id ?? null, -32603, String(error)),
       );
     }
   })

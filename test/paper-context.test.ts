@@ -86,7 +86,12 @@ describe("paper context in the Zotero reader", function () {
   it("sends explicit selections and keeps a page citation bound to the original PDF", async function () {
     await reset();
     const agent = await makeAgent("reader context");
-    use(agent.profile());
+    use(
+      agent.profile([
+        "--capabilities",
+        '{"loadSession":true,"mcpCapabilities":{"http":true}}',
+      ]),
+    );
     const aTitle = `Paper A ${"A long title ".repeat(8).trim()}`;
     const a = await makePaper(agent.dir, aTitle, "alpha");
     const b = await makePaper(agent.dir, "Paper B", "beta");
@@ -189,8 +194,24 @@ describe("paper context in the Zotero reader", function () {
         () =>
           pane.querySelector(".sap-context-title")?.textContent === "Paper B",
       );
+      await IOUtils.writeUTF8(PathUtils.join(agent.dir, "paper-switched"), "B");
       await until(() => chat.getState().execution === "idle");
       stage = "resolve and open the citation";
+      const read = (await agent.received()).find(
+        ({ event }) => event === "pdf-text",
+      );
+      assert.exists(
+        read,
+        "the ACP agent called the MCP reader after switching PDFs",
+      );
+      assert.isNotTrue(read!.result.isError, read!.result.content[0].text);
+      const pdf = JSON.parse(read!.result.content[0].text);
+      assert.equal(pdf.attachmentKey, a.key);
+      assert.equal(pdf.totalPages, 2);
+      assert.equal(pdf.extractedPages, 2);
+      assert.include(pdf.text, "alpha page one");
+      assert.include(pdf.text, "alpha page two");
+      assert.notInclude(pdf.text, "beta page");
       const link = pane.querySelector<HTMLAnchorElement>(".sap-citation")!;
       const transcript = pane.querySelector<HTMLElement>(
         ".sap-chat-transcript",
@@ -219,7 +240,13 @@ describe("paper context in the Zotero reader", function () {
           chat.getState().messages.length === 4 &&
           chat.getState().execution === "idle",
       );
-      const prompts = (await agent.received()).filter(
+      const received = await agent.received();
+      const stale = received.find(({ event }) => event === "stale-pdf-text");
+      assert.isTrue(
+        stale?.result.isError,
+        "a new turn cannot reuse the old turn's PDF access",
+      );
+      const prompts = received.filter(
         (request) => request.method === "session/prompt",
       );
       assert.lengthOf(prompts, 2);
@@ -234,10 +261,20 @@ describe("paper context in the Zotero reader", function () {
       assert.include(first, "alpha page one");
       assert.include(first, `${a.key}?page=1`);
       assert.notInclude(first, "beta page one");
+      assert.notInclude(
+        first,
+        "alpha page two",
+        "full text is absent from the prompt",
+      );
       assert.include(second, "Paper B");
       assert.include(second, "beta page one");
       assert.include(second, `${b.key}?page=1`);
       assert.notInclude(second, "alpha page one");
+      assert.notInclude(
+        second,
+        "beta page two",
+        "full text is absent from the follow-up",
+      );
     } catch (error) {
       const stats = reader()?._internalReader?._state?.primaryViewStats;
       throw new Error(
