@@ -1,6 +1,14 @@
 import { config } from "../../package.json";
 import { logError } from "../utils/log";
 
+export interface PaperAttachment {
+  itemID: number;
+  itemKey: string;
+  uri: string;
+  pageIndex?: number;
+  pageLabel?: string;
+}
+
 export interface PaperContext {
   itemID: number;
   itemKey: string;
@@ -10,13 +18,8 @@ export interface PaperContext {
   abstract: string;
   doi: string;
   year: string;
-  attachment?: {
-    itemID: number;
-    itemKey: string;
-    uri: string;
-    pageIndex?: number;
-    pageLabel?: string;
-  };
+  attachment?: PaperAttachment;
+  attachments?: PaperAttachment[];
   materials: {
     metadata: boolean;
     pdfText: boolean;
@@ -55,13 +58,28 @@ function readerState(reader: Reader) {
   return reader._internalReader?._state as PdfReaderState | undefined;
 }
 
-function pdfURI(attachment: Zotero.Item): string {
+export function pdfURI(attachment: Zotero.Item): string {
   const { libraryID, key } = attachment;
   const library =
     libraryID === Zotero.Libraries.userLibraryID
       ? "library"
       : `groups/${Zotero.Groups.getGroupIDFromLibraryID(libraryID)}`;
   return `zotero://open-pdf/${library}/items/${key}`;
+}
+
+export function paperAttachments(item: Zotero.Item): Zotero.Item[] {
+  if (item.isPDFAttachment()) return [item];
+  return Zotero.Items.get(item.getAttachments()).filter(
+    (attachment) => !attachment.deleted && attachment.isPDFAttachment(),
+  );
+}
+
+export function describeAttachment(attachment: Zotero.Item): PaperAttachment {
+  return {
+    itemID: attachment.id,
+    itemKey: attachment.key,
+    uri: pdfURI(attachment),
+  };
 }
 
 function selectionFrom(
@@ -116,12 +134,11 @@ function paperFrom(
     doi: item.getField("DOI"),
     year: year === "0000" ? "" : year,
     attachment: attachment && {
-      itemID: attachment.id,
-      itemKey: attachment.key,
-      uri: pdfURI(attachment),
+      ...describeAttachment(attachment),
       pageIndex: stats?.pageIndex,
       pageLabel: stats?.pageLabel,
     },
+    attachments: paperAttachments(item).map(describeAttachment),
     materials: {
       metadata: true,
       pdfText:
@@ -180,9 +197,7 @@ export function createPaperContext(
         return { item: parent, attachment: item as PdfAttachment, reader };
       }
     } else if (item.isRegularItem()) {
-      const attachment = Zotero.Items.get(item.getAttachments()).find(
-        (candidate) => candidate.isPDFAttachment(),
-      ) as PdfAttachment | undefined;
+      const attachment = paperAttachments(item)[0] as PdfAttachment | undefined;
       return { item, attachment };
     }
   }
@@ -190,6 +205,13 @@ export function createPaperContext(
   function read(): PaperContext | undefined {
     const active = target();
     return active && paperFrom(active.item, active.attachment, active.reader);
+  }
+
+  function readSelection(): SelectedText | undefined {
+    const reader = activeReader();
+    if (reader?._item?.isPDFAttachment()) {
+      return selectionFrom(reader._item, currentSelection(reader));
+    }
   }
 
   function refresh() {
@@ -268,5 +290,5 @@ export function createPaperContext(
     Zotero.Reader.unregisterEventListener("renderTextSelectionPopup", onPopup);
   }
 
-  return { read, setVisible, dispose };
+  return { read, readSelection, setVisible, dispose };
 }

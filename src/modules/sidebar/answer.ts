@@ -17,7 +17,7 @@ import { h, lucideIcon } from "../ui/dom";
 
 const MAX_CARDS = 2;
 const PDF_LINK =
-  /^zotero:\/\/open-pdf\/(?:library|groups\/\d+)\/items\/[a-z0-9]+(?:\?[^#\s]*)?$/i;
+  /^zotero:\/\/open-pdf\/(?:library|groups\/\d+)\/items\/[a-z0-9]+(?:\?page=[1-9]\d*)?$/i;
 const PDF_PAGE_LINK = /^#page=([1-9]\d*)$/;
 const WEB_LINK = /^https?:\/\/[^\s/]+/i;
 const markdown = new MarkdownIt({ html: false, breaks: true })
@@ -308,7 +308,11 @@ function renderMarkdown(
 }
 
 function resolveSourceUrl(href: string, pdfUrl?: string): string | undefined {
-  if (WEB_LINK.test(href) || PDF_LINK.test(href)) return href;
+  if (WEB_LINK.test(href)) return href;
+  if (PDF_LINK.test(href)) {
+    const page = new URL(href).searchParams.get("page");
+    return page && Number.isSafeInteger(Number(page)) ? href : undefined;
+  }
   const page = PDF_PAGE_LINK.exec(href)?.[1];
   if (!page || !Number.isSafeInteger(Number(page))) return;
   if (!pdfUrl || !PDF_LINK.test(pdfUrl)) return;

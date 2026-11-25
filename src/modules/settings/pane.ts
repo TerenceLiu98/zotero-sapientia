@@ -17,6 +17,11 @@ import {
   setDefaultProfileId,
 } from "../../agents/store";
 import { getString, type MessageId } from "../../utils/locale";
+import {
+  READ_MATERIALS,
+  readAllowed,
+  setReadAllowed,
+} from "../../context/read-scope";
 import { COMBOBOX_STYLES, createCombobox } from "../ui/combobox";
 import { h, icon, ICON } from "../ui/dom";
 import { SETTINGS_STYLES } from "./styles";
@@ -140,6 +145,27 @@ export function renderSettingsPane(
       editor,
     ),
     h(doc, "div", { class: "sap-prefs-section" }, defaultAgent.element),
+    h(
+      doc,
+      "fieldset",
+      { class: "sap-prefs-section sap-prefs-scope" },
+      h(
+        doc,
+        "legend",
+        { class: "sap-prefs-heading" },
+        getString("prefs-read-scope"),
+      ),
+      ...READ_MATERIALS.map((material) => {
+        const input = h(doc, "input", {
+          type: "checkbox",
+          checked: readAllowed(material),
+        });
+        input.addEventListener("change", () =>
+          setReadAllowed(material, input.checked),
+        );
+        return h(doc, "label", {}, input, getString(`prefs-read-${material}`));
+      }),
+    ),
   );
 
   function field(text: TextField): Field {

@@ -11,6 +11,7 @@ export type ChatSelection = SelectedText | AnswerSelection;
 export interface TurnContext {
   readonly paper?: PaperContext;
   readonly selections: readonly ChatSelection[];
+  readonly readSelection?: () => SelectedText | undefined;
 }
 
 /** One entry of an assistant message, in the order the agent produced it. */

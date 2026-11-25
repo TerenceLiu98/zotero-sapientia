@@ -120,6 +120,7 @@ export function createContextView(doc: Document, onAttach?: () => void) {
       return {
         paper: tracker.read(),
         selections: Array.from(selections.values()),
+        readSelection: tracker.readSelection,
       };
     },
     consume(sent: readonly ChatSelection[]) {
