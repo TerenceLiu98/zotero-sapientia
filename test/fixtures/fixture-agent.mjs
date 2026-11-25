@@ -202,6 +202,50 @@ async function runTurn(id, session, prompt) {
       }
       return end("end_turn");
     }
+    case "math-stream":
+    case "math-complete": {
+      const longMath = Array(45).fill("x").join("+");
+      const chunks = [
+        "- **Aggre",
+        "gator（汇总型）**把政策调到平均立场。\n\n",
+        String.raw`Normal distribution \(X\sim\mathcal N(\mu,\sigma^2)\) and $E=mc^2$.`,
+        "\n\n$$\n",
+        String.raw`f(x)=\frac{1}{\sigma\sqrt{2\pi}}e^{-(x-\mu)^2/(2\sigma^2)}`,
+        `\n$$\n\n\\[\n${longMath}\n\\]\n\n`,
+        "[p. 3](zotero://open-pdf/library/items/",
+        "ABCD1234?page=3)\n\n```text\n$code$\n```\n\n",
+        "Price: $5 and $10. Invalid: $\\unknownCommand$.\n\n$$",
+      ];
+      if (command === "math-stream") {
+        chunk(chunks[0]);
+        await sleep(300);
+        say({
+          sessionUpdate: "tool_call",
+          toolCallId: "math",
+          title: "Check notation",
+          status: "completed",
+        });
+        chunk(chunks[1]);
+        chunk(chunks[2]);
+        chunk(chunks[3]);
+        await sleep(300);
+        say({
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "Writing the formula." },
+        });
+        for (const part of chunks.slice(4, 7)) chunk(part);
+        say({
+          sessionUpdate: "tool_call",
+          toolCallId: "reference",
+          title: "Check reference",
+          status: "completed",
+        });
+        for (const part of chunks.slice(7)) chunk(part);
+      } else {
+        chunk(chunks.join(""));
+      }
+      return end("end_turn");
+    }
     case "think":
     case "think-slow": {
       say({

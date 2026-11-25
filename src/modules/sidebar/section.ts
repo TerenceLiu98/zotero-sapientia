@@ -37,6 +37,10 @@ export function mountChatSidebar(
     style: "display: flex; flex: 1; min-height: 0; min-width: 0; width: 100%",
   });
   content.append(
+    h(doc, "link", {
+      rel: "stylesheet",
+      href: `chrome://${config.addonRef}/content/styles/katex.css`,
+    }),
     h(
       doc,
       "style",
@@ -115,6 +119,7 @@ export function mountChatSidebar(
   let view: ChatView | undefined;
   const context = createContextView(doc, () => {
     if (panel.hidden) setOpen(true);
+    else view?.element.querySelector("textarea")?.focus();
   });
   const setOpen = (open: boolean) => {
     panel.hidden = !open;

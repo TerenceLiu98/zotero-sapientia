@@ -1,5 +1,6 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import {
+  MessageSquareText,
   Power,
   RotateCcw,
   Settings,
@@ -15,10 +16,11 @@ import type {
 } from "../../chat/controller";
 import { formatError } from "../../utils/errors";
 import { getString, type MessageId } from "../../utils/locale";
-import { h, iconButton } from "../ui/dom";
+import { h, iconButton, lucideIcon } from "../ui/dom";
 import { createAnswer } from "./answer";
+import { createAnswerSelection } from "./answer-selection";
 import { createComposer } from "./composer";
-import { createContextView } from "./context";
+import { createContextView, selectionSource } from "./context";
 import { createThinkingState } from "./thinking";
 
 export interface ChatView {
@@ -78,16 +80,24 @@ export function createChatView(
   const openSettings = () => {
     Zotero.Utilities.Internal.openPreferences(`${config.addonRef}-prefs`);
   };
-  const composer = createComposer(doc, {
-    async send(text) {
-      const snapshot = context.snapshot();
-      const sent = await chat.send(text, snapshot);
-      if (sent) context.consume(snapshot.selections);
-      return sent;
+  const composer = createComposer(
+    doc,
+    {
+      send(text) {
+        const snapshot = context.snapshot();
+        return chat.send(text, snapshot, () =>
+          context.consume(snapshot.selections),
+        );
+      },
+      stop: () => chat.stop(),
+      selectAgent: (id) => chat.selectAgent(id),
+      selectModel: (id) => chat.selectModel(id),
     },
-    stop: () => chat.stop(),
-    selectAgent: (id) => chat.selectAgent(id),
-    selectModel: (id) => chat.selectModel(id),
+    context.attachments,
+  );
+  const answerSelection = createAnswerSelection(transcript, (selection) => {
+    context.attach(selection);
+    composer.input.focus();
   });
   const connect = button("action-connect", Power, () => void chat.connect());
   const reconnect = button(
@@ -129,6 +139,7 @@ export function createChatView(
     transcript,
     context.element,
     composer.element,
+    answerSelection.element,
   );
 
   type Mounted =
@@ -147,9 +158,37 @@ export function createChatView(
 
   function mountMessage(message: ChatMessage): Mounted {
     if (message.role === "user") {
+      const selections =
+        message.context?.selections.map((selection, index) =>
+          h(
+            doc,
+            "details",
+            { class: "sap-sent-selection" },
+            h(
+              doc,
+              "summary",
+              {},
+              lucideIcon(doc, MessageSquareText, 13),
+              getString("context-selection-number", { number: index + 1 }),
+            ),
+            h(doc, "div", { class: "sap-sent-selection-text" }, selection.text),
+            h(
+              doc,
+              "div",
+              { class: "sap-sent-selection-source" },
+              selectionSource(selection),
+            ),
+          ),
+        ) ?? [];
       return {
         role: "user",
-        node: h(doc, "div", { class: "sap-msg sap-msg-user" }),
+        node: h(
+          doc,
+          "div",
+          { class: "sap-msg sap-msg-user" },
+          ...selections,
+          h(doc, "div", { class: "sap-user-text" }, message.text),
+        ),
       };
     }
     const thinking = createThinkingState(doc);
@@ -167,7 +206,7 @@ export function createChatView(
     const node = h(
       doc,
       "article",
-      { class: "sap-msg sap-msg-assistant" },
+      { class: "sap-msg sap-msg-assistant", "data-answer-id": message.id },
       source,
       thinking.element,
       answer.element,
@@ -187,7 +226,7 @@ export function createChatView(
           thinking.render(current);
           answerText = current.blocks
             .flatMap((block) => (block.type === "text" ? [block.text] : []))
-            .join("\n\n");
+            .join("");
           const label = current.stopReason && END_NOTES[current.stopReason];
           note.hidden = !label;
           note.textContent = label ? getString(label) : "";
@@ -227,11 +266,6 @@ export function createChatView(
       }
       if (item.role === "assistant" && message.role === "assistant") {
         item.render(message, state, index === state.messages.length - 1);
-      } else if (
-        message.role === "user" &&
-        item.node.textContent !== message.text
-      ) {
-        item.node.textContent = message.text;
       }
     });
     for (const [id, item] of mounted) {
@@ -273,10 +307,14 @@ export function createChatView(
 
   return {
     element: root,
-    setVisible: context.setVisible,
+    setVisible(visible) {
+      context.setVisible(visible);
+      if (!visible) answerSelection.hide();
+    },
     destroy() {
       unsubscribe();
       composer.destroy();
+      answerSelection.destroy();
       context.destroy();
       for (const item of mounted.values())
         if (item.role === "assistant") item.destroy();

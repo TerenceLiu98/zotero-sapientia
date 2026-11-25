@@ -20,6 +20,66 @@ export const COMPOSER_STYLES = `
   padding: 16px 12px 12px;
   cursor: text;
 }
+.sap-context-attached:not([hidden]) {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  margin-top: -4px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  cursor: auto;
+}
+.sap-context-quote {
+  position: relative;
+  display: flex;
+  flex: 0 0 clamp(106px, calc((100% - 16px) / 3), 122px);
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  height: 122px;
+  padding: 7px 8px 5px;
+  border: 1px solid var(--color-border50, var(--color-border));
+  border-radius: 15px;
+  background: var(--fill-quinary);
+}
+.sap-context-quote-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  padding-inline-end: 13px;
+  overflow-wrap: anywhere;
+  color: var(--fill-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.sap-context-quote-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--fill-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.sap-context-quote-footer svg { flex: none; }
+.sap-context-quote-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sap-context-quote button.sap-context-remove {
+  display: grid;
+  position: absolute;
+  inset-block-start: 3px;
+  inset-inline-end: 3px;
+  opacity: 0;
+  width: 18px;
+  min-width: 0;
+  height: 18px;
+  padding: 0;
+}
+.sap-context-quote:hover button.sap-context-remove,
+.sap-context-quote:focus-within button.sap-context-remove { opacity: 1; }
+.sap-context-quote button.sap-context-remove svg { width: 12px; height: 12px; }
 .sap-chat-composer .sap-chat-input {
   width: 100%;
   display: block;

@@ -1,3 +1,6 @@
+import { cjkFriendly } from "@mdit/plugin-cjk-friendly";
+import { katex } from "@mdit/plugin-katex";
+import { ParseError } from "katex";
 import MarkdownIt from "markdown-it";
 import {
   Check,
@@ -17,7 +20,28 @@ const PDF_LINK =
   /^zotero:\/\/open-pdf\/(?:library|groups\/\d+)\/items\/[a-z0-9]+(?:\?[^#\s]*)?$/i;
 const PDF_PAGE_LINK = /^#page=([1-9]\d*)$/;
 const WEB_LINK = /^https?:\/\/[^\s/]+/i;
-const markdown = new MarkdownIt({ html: false, breaks: true }).disable("image");
+const markdown = new MarkdownIt({ html: false, breaks: true })
+  .disable("image")
+  .use(cjkFriendly)
+  .use(katex, { delimiters: "all", trust: false, throwOnError: true });
+for (const rule of ["math_inline", "math_block"] as const) {
+  const render = markdown.renderer.rules[rule]!;
+  markdown.renderer.rules[rule] = (...args) => {
+    try {
+      return render(...args);
+    } catch (error) {
+      if (!(error instanceof ParseError)) throw error;
+      const [tokens, index] = args;
+      const { content, markup } = tokens[index];
+      const close =
+        markup === "\\(" ? "\\)" : markup === "\\[" ? "\\]" : markup;
+      const raw = markdown.utils.escapeHtml(
+        `${markup}${content.trimEnd()}${close}`,
+      );
+      return rule === "math_block" ? `<pre>${raw}</pre>\n` : raw;
+    }
+  };
+}
 markdown.validateLink = (url) =>
   WEB_LINK.test(url) || PDF_LINK.test(url) || PDF_PAGE_LINK.test(url);
 markdown.renderer.rules.link_open = (
@@ -226,6 +250,18 @@ function renderMarkdown(
   template.innerHTML = markdown.render(text);
   const content = template.content;
   const plainContent = content.cloneNode(true) as DocumentFragment;
+  for (const formula of plainContent.querySelectorAll(".katex")) {
+    const tex = formula.querySelector(
+      'annotation[encoding="application/x-tex"]',
+    )?.textContent;
+    if (tex) {
+      formula.replaceWith(
+        formula.parentElement?.classList.contains("katex-display")
+          ? `$$\n${tex.trimEnd()}\n$$`
+          : `$${tex}$`,
+      );
+    }
+  }
   for (const br of plainContent.querySelectorAll("br")) br.replaceWith("\n");
   const plainText = plainContent.textContent?.trim() ?? "";
   const sources = new Map<string, AnswerSource>();

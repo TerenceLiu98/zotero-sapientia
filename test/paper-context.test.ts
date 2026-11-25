@@ -63,16 +63,13 @@ function attachSelection(reader: Reader, text: string, doc: Document) {
     append: (button: HTMLButtonElement) => buttons.push(button),
   });
   assert.lengthOf(buttons, 1);
+  assert.equal(buttons[0].textContent, "Ask Agent");
   buttons[0].click();
 }
 
 function submit(pane: XULElement, question: string) {
   const input = pane.querySelector<HTMLTextAreaElement>(".sap-chat-input")!;
   const send = pane.querySelector<HTMLButtonElement>(".sap-composer-send")!;
-  assert.include(
-    pane.querySelector(".sap-context-notice")!.textContent!,
-    "locally or remotely",
-  );
   input.value = question;
   const win = mainWindow();
   input.dispatchEvent(new win.Event("input"));
@@ -95,19 +92,6 @@ describe("paper context in the Zotero reader", function () {
     const aTitle = `Paper A ${"A long title ".repeat(8).trim()}`;
     const a = await makePaper(agent.dir, aTitle, "alpha");
     const b = await makePaper(agent.dir, "Paper B", "beta");
-    const highlight = new Zotero.Item("annotation");
-    highlight.libraryID = a.libraryID;
-    highlight.parentID = a.id;
-    highlight.annotationType = "highlight";
-    highlight.annotationText = "Stored highlight";
-    highlight.annotationPageLabel = "1";
-    highlight.annotationColor = "#ffd400";
-    highlight.annotationSortIndex = "00000|000500|00100";
-    highlight.annotationPosition = JSON.stringify({
-      pageIndex: 0,
-      rects: [[40, 710, 160, 732]],
-    });
-    await highlight.saveTx();
     const win = mainWindow();
     const doc = win.document;
     const pane = doc.getElementById(CHAT_PANE_ID) as XULElement;
@@ -144,36 +128,46 @@ describe("paper context in the Zotero reader", function () {
         () => pane.querySelector(".sap-context-title")?.textContent === aTitle,
       );
       await until(() => chat.getState().connection === "connected");
-      const materials = pane.querySelector(".sap-context-materials")!;
-      for (const material of ["Metadata", "PDF text", "Annotations"])
-        assert.include(materials.textContent!, material);
-      const internalReader =
-        readerA._internalReader as typeof readerA._internalReader & {
-          _lastViewPrimary?: boolean;
-        };
-      const popup =
-        internalReader._lastViewPrimary === false
-          ? "secondaryViewSelectionPopup"
-          : "primaryViewSelectionPopup";
-      const selection = internalReader._state as typeof internalReader._state &
-        Partial<Record<typeof popup, unknown>>;
-      selection[popup] = {
-        annotation: {
-          text: "alpha page one",
-          pageLabel: "1",
-          position: { pageIndex: 0 },
-        },
-      };
-      attachSelection(readerA, "alpha page one", doc);
-      assert.include(materials.textContent!, "Selection");
-      selection[popup] = null;
-      attachSelection(readerA, "alpha page one", doc);
-      assert.notInclude(materials.textContent!, "Selection");
+      const paperRow = pane.querySelector(".sap-chat-context")!;
+      assert.equal(paperRow.textContent, aTitle);
+      assert.isNull(paperRow.querySelector("button"));
       assert.include(
         pane.querySelector(".sap-context-quote")!.textContent!,
         "alpha page one",
       );
       resizeTo(400);
+      stage = "lay out and remove selected text cards";
+      attachSelection(readerA, "Another passage ".repeat(20).trim(), doc);
+      attachSelection(readerA, "A third passage", doc);
+      const cards = pane.querySelectorAll<HTMLElement>(
+        ".sap-composer-card .sap-context-quote",
+      );
+      assert.lengthOf(cards, 3);
+      assert.equal(
+        cards[0].querySelector(".sap-context-quote-label")?.textContent,
+        "Selected text 1",
+      );
+      assert.equal(
+        cards[2].querySelector(".sap-context-quote-label")?.textContent,
+        "Selected text 3",
+      );
+      assert.equal(
+        cards[0].getBoundingClientRect().top,
+        cards[2].getBoundingClientRect().top,
+      );
+      assert.isBelow(
+        cards[0].getBoundingClientRect().right,
+        cards[2].getBoundingClientRect().left,
+      );
+      assert.isAtMost(
+        cards[1].querySelector(".sap-context-quote-text").clientHeight,
+        72,
+      );
+      cards[2].querySelector("button").click();
+      pane
+        .querySelectorAll<HTMLButtonElement>(".sap-context-remove")[1]
+        .click();
+      assert.lengthOf(pane.querySelectorAll(".sap-context-quote"), 1);
       const title = pane.querySelector<HTMLElement>(".sap-context-title")!;
       const normalTitleHeight = title.clientHeight;
       resizeTo(300);
@@ -187,15 +181,43 @@ describe("paper context in the Zotero reader", function () {
           "Result",
       );
       assert.equal(chat.getState().execution, "executing");
+      assert.isNull(
+        pane.querySelector(".sap-composer-card .sap-context-quote"),
+      );
+      const sentQuote = pane.querySelector<HTMLDetailsElement>(
+        ".sap-msg-user .sap-sent-selection",
+      )!;
+      assert.isFalse(sentQuote.open);
+      sentQuote.querySelector<HTMLElement>("summary")!.click();
+      assert.isTrue(sentQuote.open);
+      assert.equal(
+        sentQuote.querySelector(".sap-sent-selection-text")?.textContent,
+        "alpha page one",
+      );
+      assert.include(
+        sentQuote.querySelector(".sap-sent-selection-source")!.textContent!,
+        aTitle,
+      );
       stage = "switch to paper B and add its selection";
       const readerB = await open(b);
       attachSelection(readerB, "beta page one", doc);
+      assert.equal(
+        pane.querySelector(".sap-composer-card .sap-context-quote-text")
+          ?.textContent,
+        "beta page one",
+      );
       await until(
         () =>
           pane.querySelector(".sap-context-title")?.textContent === "Paper B",
       );
       await IOUtils.writeUTF8(PathUtils.join(agent.dir, "paper-switched"), "B");
       await until(() => chat.getState().execution === "idle");
+      assert.equal(
+        pane.querySelector(".sap-composer-card .sap-context-quote-text")
+          ?.textContent,
+        "beta page one",
+      );
+      assert.isTrue(sentQuote.open);
       stage = "resolve and open the citation";
       const read = (await agent.received()).find(
         ({ event }) => event === "pdf-text",
@@ -275,6 +297,48 @@ describe("paper context in the Zotero reader", function () {
         "beta page two",
         "full text is absent from the follow-up",
       );
+      stage = "use Ask to include an entire previous answer";
+      const answer = pane.querySelector<HTMLElement>(
+        ".sap-msg-assistant:last-child .sap-answer-text",
+      )!;
+      answer.scrollIntoView({ block: "center" });
+      const range = doc.createRange();
+      range.selectNodeContents(answer);
+      win.getSelection()!.removeAllRanges();
+      win.getSelection()!.addRange(range);
+      doc.dispatchEvent(new win.Event("selectionchange"));
+      const ask = pane.querySelector<HTMLButtonElement>(".sap-answer-ask")!;
+      const selected = win.getSelection()!;
+      const bounds = transcript.getBoundingClientRect();
+      const highlightBounds = range.getBoundingClientRect();
+      assert.isTrue(
+        ask.matches(":popover-open"),
+        `selection ${selected.rangeCount}/${selected.toString()}, highlight ${highlightBounds?.top}..${highlightBounds?.bottom}, transcript ${bounds.top}..${bounds.bottom}`,
+      );
+      assert.equal(ask.textContent, "Ask Agent");
+      ask.click();
+      assert.isFalse(ask.matches(":popover-open"));
+      assert.equal(doc.activeElement, pane.querySelector("textarea"));
+      assert.equal(
+        pane.querySelector(".sap-context-quote-text")?.textContent,
+        "Earlier result: Source citation",
+      );
+      submit(pane, "echo:about the quoted reply");
+      await until(
+        () =>
+          chat.getState().messages.length === 6 &&
+          chat.getState().execution === "idle",
+      );
+      const third = (await agent.received())
+        .filter(({ method }) => method === "session/prompt")
+        .at(-1)!;
+      const sent = JSON.stringify(third.params.prompt);
+      assert.include(sent, "previous_agent_answer");
+      assert.include(sent, "Earlier result: Source citation");
+      const history = pane.querySelectorAll(
+        ".sap-msg-user .sap-sent-selection-text",
+      );
+      assert.equal(history[2].textContent, "Earlier result: Source citation");
     } catch (error) {
       const stats = reader()?._internalReader?._state?.primaryViewStats;
       throw new Error(

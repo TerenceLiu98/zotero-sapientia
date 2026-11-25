@@ -15,7 +15,11 @@ interface ComposerActions {
   selectModel(id: string): Promise<void>;
 }
 
-export function createComposer(doc: Document, actions: ComposerActions) {
+export function createComposer(
+  doc: Document,
+  actions: ComposerActions,
+  attachments: HTMLElement,
+) {
   const window = doc.defaultView!;
   const input = h(doc, "textarea", {
     class: "sap-chat-input",
@@ -44,6 +48,7 @@ export function createComposer(doc: Document, actions: ComposerActions) {
       doc,
       "div",
       { class: "sap-composer-card" },
+      attachments,
       input,
       h(doc, "div", { class: "sap-composer-toolbar" }, picker.element, send),
     ),

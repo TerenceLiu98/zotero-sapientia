@@ -1,57 +1,24 @@
-import { FileText, Quote, X } from "lucide";
-import { createPaperContext, type SelectedText } from "../../context/paper";
-import { getString, type MessageId } from "../../utils/locale";
+import { FileText, MessageSquareText, X } from "lucide";
+import type { ChatSelection } from "../../chat/transcript";
+import { createPaperContext } from "../../context/paper";
+import { getString } from "../../utils/locale";
 import { h, iconButton, lucideIcon } from "../ui/dom";
-
-const MATERIALS = {
-  metadata: "context-metadata",
-  pdfText: "context-pdf-text",
-  selectedText: "context-selection",
-  annotations: "context-annotations",
-} as const satisfies Record<string, MessageId>;
 
 export function createContextView(doc: Document, onAttach?: () => void) {
   const title = h(doc, "span", { class: "sap-context-title" });
-  const paper = h(
-    doc,
-    "div",
-    { class: "sap-context-paper" },
-    lucideIcon(doc, FileText, 15),
-    title,
-  );
-  const materials = h(doc, "div", { class: "sap-context-materials" });
-  const attached = h(doc, "div", { class: "sap-context-attached" });
-  const selections = new Map<number, SelectedText>();
-  let nextId = 0;
-  const add = h(
-    doc,
-    "button",
-    {
-      class: "sap-chat-button sap-context-add",
-      type: "button",
-      click: () => {
-        const selection = tracker.readSelection();
-        if (selection) attach(selection);
-      },
-    },
-    lucideIcon(doc, Quote, 13),
-    getString("context-add-selection"),
-  );
   const element = h(
     doc,
     "div",
-    { class: "sap-chat-context" },
-    paper,
-    materials,
-    add,
-    attached,
-    h(
-      doc,
-      "p",
-      { class: "sap-context-notice" },
-      getString("context-processing"),
-    ),
+    { class: "sap-chat-context sap-context-paper", hidden: true },
+    lucideIcon(doc, FileText, 15),
+    title,
   );
+  const attached = h(doc, "div", {
+    class: "sap-context-attached",
+    hidden: true,
+  });
+  const selections = new Map<number, ChatSelection>();
+  let nextId = 0;
   const tracker = createPaperContext(
     doc.defaultView!,
     render,
@@ -61,65 +28,79 @@ export function createContextView(doc: Document, onAttach?: () => void) {
 
   function render() {
     const current = tracker.read();
+    element.hidden = !current;
     title.textContent = current?.title ?? "";
-    paper.hidden = !current;
-    materials.hidden = !current;
-    add.hidden = !tracker.readSelection();
-    if (current) {
-      materials.replaceChildren(
-        ...Object.entries(MATERIALS).flatMap(([key, label]) =>
-          current.materials[key as keyof typeof MATERIALS]
-            ? [h(doc, "span", {}, getString(label))]
-            : [],
-        ),
-      );
-    }
   }
 
   function renderAttachments() {
+    attached.hidden = selections.size === 0;
     attached.replaceChildren(
-      ...Array.from(selections, ([id, selection]) => {
-        const source =
-          selection.pageLabel ??
-          (selection.pageIndex === undefined
-            ? ""
-            : String(selection.pageIndex + 1));
-        const label = source
-          ? getString("context-selection-source", {
-              title: selection.itemTitle,
-              page: source,
-            })
-          : selection.itemTitle;
+      ...Array.from(selections, ([id, selection], index) => {
+        const origin = selectionSource(selection);
+        const label = getString("context-selection-number", {
+          number: index + 1,
+        });
+        const remove = iconButton(
+          doc,
+          getString("context-remove-selection"),
+          X,
+          () => {
+            selections.delete(id);
+            renderAttachments();
+            const buttons =
+              attached.querySelectorAll<HTMLButtonElement>("button");
+            const next = buttons[Math.min(index, buttons.length - 1)];
+            (
+              next ??
+              attached.parentElement?.querySelector<HTMLTextAreaElement>(
+                "textarea",
+              )
+            )?.focus();
+          },
+          "sap-chat-button sap-icon-button sap-context-remove",
+        );
         return h(
           doc,
           "div",
-          { class: "sap-context-quote", title: `${label}\n${selection.text}` },
-          lucideIcon(doc, Quote, 13),
+          {
+            class: "sap-context-quote",
+            title: origin ? `${origin}\n${selection.text}` : selection.text,
+          },
+          h(doc, "div", { class: "sap-context-quote-text" }, selection.text),
           h(
             doc,
-            "span",
-            { class: "sap-context-quote-text" },
-            h(doc, "strong", {}, label),
-            selection.text,
+            "div",
+            { class: "sap-context-quote-footer" },
+            lucideIcon(doc, MessageSquareText, 13),
+            h(
+              doc,
+              "span",
+              { class: "sap-context-quote-label", title: label },
+              label,
+            ),
+            remove,
           ),
-          iconButton(doc, getString("context-remove-selection"), X, () => {
-            selections.delete(id);
-            renderAttachments();
-          }),
         );
       }),
     );
   }
 
-  function attach(selection: SelectedText) {
+  function attach(selection: ChatSelection) {
     if (
-      Array.from(selections.values()).some(
-        (existing) =>
+      Array.from(selections.values()).some((existing) => {
+        if (existing.text !== selection.text) return false;
+        if ("answerId" in existing) {
+          return (
+            "answerId" in selection && existing.answerId === selection.answerId
+          );
+        }
+        return (
+          !("answerId" in selection) &&
           existing.libraryID === selection.libraryID &&
           existing.attachmentKey === selection.attachmentKey &&
-          existing.pageIndex === selection.pageIndex &&
-          existing.text === selection.text,
-      )
+          existing.pageIndex === selection.pageIndex
+        );
+      })
     )
       return;
     selections.set(++nextId, selection);
@@ -129,6 +110,8 @@ export function createContextView(doc: Document, onAttach?: () => void) {
 
   return {
     element,
+    attachments: attached,
+    attach,
     setVisible(visible: boolean) {
       tracker.setVisible(visible);
       if (visible) render();
@@ -139,7 +122,7 @@ export function createContextView(doc: Document, onAttach?: () => void) {
         selections: Array.from(selections.values()),
       };
     },
-    consume(sent: readonly SelectedText[]) {
+    consume(sent: readonly ChatSelection[]) {
       for (const [id, selection] of selections)
         if (sent.includes(selection)) selections.delete(id);
       renderAttachments();
@@ -150,4 +133,19 @@ export function createContextView(doc: Document, onAttach?: () => void) {
     },
     destroy: () => tracker.dispose(),
   };
+}
+
+export function selectionSource(selection: ChatSelection) {
+  if ("answerId" in selection) return undefined;
+  const page =
+    selection.pageLabel ??
+    (selection.pageIndex === undefined
+      ? undefined
+      : String(selection.pageIndex + 1));
+  return page
+    ? getString("context-selection-source", {
+        title: selection.itemTitle,
+        page,
+      })
+    : selection.itemTitle;
 }

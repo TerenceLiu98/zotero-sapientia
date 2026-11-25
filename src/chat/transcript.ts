@@ -1,9 +1,16 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type { PaperContext, SelectedText } from "../context/paper";
 
+export interface AnswerSelection {
+  answerId: string;
+  text: string;
+}
+
+export type ChatSelection = SelectedText | AnswerSelection;
+
 export interface TurnContext {
   readonly paper?: PaperContext;
-  readonly selections: readonly SelectedText[];
+  readonly selections: readonly ChatSelection[];
 }
 
 /** One entry of an assistant message, in the order the agent produced it. */

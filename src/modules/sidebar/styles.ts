@@ -91,26 +91,42 @@ export const CHAT_STYLES =
   background: var(--fill-quinary);
   white-space: pre-wrap;
 }
+.sap-sent-selection {
+  margin-block-end: 6px;
+  padding: 4px 6px;
+  border-inline-start: 2px solid var(--color-border);
+  font-size: 12px;
+}
+.sap-sent-selection summary { cursor: pointer; white-space: normal; }
+.sap-sent-selection summary svg { margin-inline: 2px 5px; vertical-align: text-bottom; }
+.sap-sent-selection-text { margin-block-start: 5px; user-select: text; }
+.sap-sent-selection-source { color: var(--fill-secondary); }
+.sap-sent-selection-source:empty { display: none; }
 .sap-msg-assistant { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; }
 .sap-msg-note { color: var(--fill-secondary); font-size: 12px; }
 .sap-chat-context { flex: none; min-width: 0; padding: 0 14px 6px; }
-.sap-context-paper, .sap-context-quote, .sap-context-add {
+.sap-context-paper {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
-.sap-context-paper svg, .sap-context-quote svg { flex: none; }
+.sap-context-paper svg { flex: none; }
 .sap-context-title, .sap-turn-source { overflow-wrap: anywhere; }
 .sap-context-title { font-weight: 600; }
-.sap-context-materials { display: flex; flex-wrap: wrap; gap: 2px 10px; }
-.sap-context-materials, .sap-context-notice, .sap-turn-source { color: var(--fill-secondary); font-size: 11px; }
-.sap-context-add { margin-block: 3px; }
-.sap-context-attached { max-height: 112px; overflow: auto; }
-.sap-context-quote { margin-block: 4px; padding: 3px 4px 3px 7px; border-radius: 6px; background: var(--fill-quinary); }
-.sap-context-quote-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sap-context-quote-text strong { margin-inline-end: 6px; }
-.sap-context-notice { margin: 3px 0 0; }
+.sap-turn-source { color: var(--fill-secondary); font-size: 11px; }
+.sap-chat button.sap-answer-ask {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 4px 9px;
+  border: 1px solid var(--color-border50, var(--color-border));
+  border-radius: 8px;
+  background: var(--color-control);
+  color: var(--fill-primary);
+  box-shadow: 0 2px 10px rgb(0 0 0 / .12);
+  font-size: 12px;
+}
 
 .sap-thinking { min-width: 0; color: var(--fill-secondary); font-size: 13px; }
 .sap-thinking-header {

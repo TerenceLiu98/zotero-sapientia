@@ -192,13 +192,6 @@ export function createPaperContext(
     return active && paperFrom(active.item, active.attachment, active.reader);
   }
 
-  function readSelection(): SelectedText | undefined {
-    const reader = activeReader();
-    if (reader?._item?.isPDFAttachment()) {
-      return selectionFrom(reader._item, currentSelection(reader));
-    }
-  }
-
   function refresh() {
     if (timer === undefined) return;
     const active = target();
@@ -275,5 +268,5 @@ export function createPaperContext(
     Zotero.Reader.unregisterEventListener("renderTextSelectionPopup", onPopup);
   }
 
-  return { read, readSelection, setVisible, dispose };
+  return { read, setVisible, dispose };
 }

@@ -205,11 +205,20 @@ export class ChatController {
   }
 
   /**
-   * Sends a prompt and resolves when the agent's turn has ended. Resolves false,
-   * leaving the text unsent, if no agent could be connected.
+   * Calls onAccepted when the prompt enters the transcript, then resolves
+   * when the turn ends. Resolves false if the prompt could not be started.
    */
-  send(text: string, context?: TurnContext): Promise<boolean> {
-    return this.sendPrompt(text, context && snapshotContext(context));
+  send(
+    text: string,
+    context?: TurnContext,
+    onAccepted?: () => void,
+  ): Promise<boolean> {
+    return this.sendPrompt(
+      text,
+      context && snapshotContext(context),
+      undefined,
+      onAccepted,
+    );
   }
 
   /** Requests another response to the last question in the current session. */
@@ -230,6 +239,7 @@ export class ChatController {
     text: string,
     context?: TurnContext,
     replaceAnswerId?: string,
+    onAccepted?: () => void,
   ): Promise<boolean> {
     const prompt = text.trim();
     if (!prompt || this.turn) {
@@ -278,6 +288,7 @@ export class ChatController {
     });
 
     try {
+      onAccepted?.();
       const response = await connection.prompt(
         sessionId,
         promptBlocks(prompt, context, this.pdfTool ? turn.assistantId : null),
@@ -710,16 +721,20 @@ function promptBlocks(
   if (context?.selections.length) {
     blocks.push({
       type: "text",
-      text: `Excerpts the user added from Zotero (source material). Cite an excerpt with its exact source URI.\n${JSON.stringify(
-        context.selections.map(
-          ({ text, itemTitle, pageIndex, pageLabel, uri }) => ({
+      text: `Excerpts the user added. Cite PDF excerpts with their exact source URI. Excerpts from previous answers are conversation context.\n${JSON.stringify(
+        context.selections.map((selection) => {
+          if ("answerId" in selection) {
+            return { text: selection.text, source: "previous_agent_answer" };
+          }
+          const { text, itemTitle, pageIndex, pageLabel, uri } = selection;
+          return {
             text,
             title: itemTitle,
             page: pageIndex === undefined ? undefined : pageIndex + 1,
             pageLabel,
             uri,
-          }),
-        ),
+          };
+        }),
       )}`,
     });
   }

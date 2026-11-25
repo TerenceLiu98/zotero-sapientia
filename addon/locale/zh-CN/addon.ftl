@@ -34,14 +34,10 @@ composer-placeholder = 向你的 Agent 提问…
 composer-agent-model = Agent 和模型
 composer-models = 模型
 composer-models-loading = 正在加载模型…
-context-metadata = 元数据
-context-pdf-text = PDF 文本
-context-selection = 选区
-context-annotations = 批注
-context-add-selection = 将选区加入对话
+context-selection-number = 所选文字 { $number }
+context-add-selection = Ask Agent
 context-remove-selection = 移除选区
 context-selection-source = { $title } · 第 { $page } 页
-context-processing = 发送的资料由所配置的 Agent 在本地或远程处理。
 
 # 回合的结束方式
 turn-cancelled = 已停止。
