@@ -1,0 +1,8 @@
+.vscode
+.scaffold
+build
+logs
+node_modules
+package-lock.json
+.claude
+docs/PRD.md

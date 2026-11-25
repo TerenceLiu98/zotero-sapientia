@@ -1,0 +1,185 @@
+import { ArrowUp, Square } from "lucide";
+import { config } from "../../../package.json";
+import { discoverAgentProfiles } from "../../agents/discovery";
+import type { AgentProfile } from "../../agents/profile";
+import { getDefaultProfile, loadProfiles } from "../../agents/store";
+import type { ChatState } from "../../chat/controller";
+import { getString } from "../../utils/locale";
+import { h, iconButton, setIconButton } from "../ui/dom";
+import { createComposerPicker } from "./composer-picker";
+
+interface ComposerActions {
+  send(text: string): Promise<boolean>;
+  stop(): Promise<void>;
+  selectAgent(id: string): Promise<void>;
+  selectModel(id: string): Promise<void>;
+}
+
+export function createComposer(doc: Document, actions: ComposerActions) {
+  const window = doc.defaultView!;
+  const input = h(doc, "textarea", {
+    class: "sap-chat-input",
+    rows: 2,
+    placeholder: getString("composer-placeholder"),
+    "aria-label": getString("composer-placeholder"),
+  });
+  const picker = createComposerPicker(doc, ({ kind, id }) => {
+    void switchSelection(kind, id);
+  });
+  const send = iconButton(
+    doc,
+    getString("action-send"),
+    ArrowUp,
+    () => {
+      if (state?.execution === "executing") void actions.stop();
+      else void submit();
+    },
+    "sap-composer-send",
+  );
+  const element = h(
+    doc,
+    "div",
+    { class: "sap-chat-composer" },
+    h(
+      doc,
+      "div",
+      { class: "sap-composer-card" },
+      input,
+      h(doc, "div", { class: "sap-composer-toolbar" }, picker.element, send),
+    ),
+  );
+
+  let state: ChatState | undefined;
+  let submitting = false;
+  let switching = false;
+  let discoveredProfiles: AgentProfile[] = [];
+  let profiles: AgentProfile[] = [];
+  let disposed = false;
+
+  function resize(): void {
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, Math.round(window.innerHeight * 0.35))}px`;
+  }
+
+  function renderControls(): void {
+    const running =
+      state?.execution === "executing" || state?.execution === "cancelling";
+    const pending =
+      submitting ||
+      switching ||
+      state?.changingModel ||
+      state?.connection === "connecting";
+    setIconButton(
+      send,
+      getString(running ? "action-stop" : "action-send"),
+      running ? Square : ArrowUp,
+    );
+    send.disabled = running
+      ? state?.execution === "cancelling"
+      : pending || !input.value.trim();
+    send.dataset.mode = running ? "stop" : "send";
+    const agent = getDefaultProfile(profiles);
+    picker.render({
+      agents: profiles,
+      agent,
+      models: switching ? null : state?.models,
+      loading: switching || state?.connection === "connecting",
+      disabled:
+        running || submitting || switching || Boolean(state?.changingModel),
+    });
+  }
+
+  function renderProfiles(): void {
+    profiles = [...loadProfiles(), ...discoveredProfiles];
+    renderControls();
+  }
+
+  async function submit(): Promise<void> {
+    if (send.disabled || (state && state.execution !== "idle")) return;
+    const draft = input.value;
+    submitting = true;
+    input.value = "";
+    resize();
+    renderControls();
+    let sent = false;
+    try {
+      sent = await actions.send(draft);
+    } finally {
+      if (!sent && !input.value) {
+        input.value = draft;
+        resize();
+      }
+      submitting = false;
+      renderControls();
+    }
+  }
+
+  async function switchSelection(
+    kind: "agent" | "model",
+    id: string,
+  ): Promise<void> {
+    if (switching) return;
+    switching = true;
+    renderControls();
+    try {
+      if (kind === "agent") await actions.selectAgent(id);
+      else await actions.selectModel(id);
+    } finally {
+      switching = false;
+      renderProfiles();
+    }
+  }
+  input.addEventListener("input", () => {
+    resize();
+    renderControls();
+  });
+  input.addEventListener("keydown", (event) => {
+    const key = event as KeyboardEvent;
+    if (key.key === "Enter" && !key.shiftKey && !key.isComposing) {
+      event.preventDefault();
+      void submit();
+    }
+  });
+  element.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    if (
+      target.classList?.contains("sap-composer-card") ||
+      target.classList?.contains("sap-composer-toolbar")
+    ) {
+      input.focus();
+    }
+  });
+
+  const profileObserver = Zotero.Prefs.registerObserver(
+    `${config.prefsPrefix}.profiles`,
+    renderProfiles,
+    true,
+  );
+  const defaultObserver = Zotero.Prefs.registerObserver(
+    `${config.prefsPrefix}.defaultProfileId`,
+    renderProfiles,
+    true,
+  );
+  renderProfiles();
+  void discoverAgentProfiles().then((profiles) => {
+    if (disposed) return;
+    discoveredProfiles = profiles;
+    renderProfiles();
+  });
+
+  return {
+    element,
+    input,
+    render(nextState: ChatState) {
+      state = nextState;
+      renderControls();
+    },
+    destroy() {
+      if (disposed) return;
+      disposed = true;
+      picker.destroy();
+      Zotero.Prefs.unregisterObserver(profileObserver);
+      Zotero.Prefs.unregisterObserver(defaultObserver);
+    },
+  };
+}
