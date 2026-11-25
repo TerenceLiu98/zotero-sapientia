@@ -1,1 +1,17 @@
 # zotero-sapientia
+
+Zotero 10 plugin for chatting with your own Agent Client Protocol (ACP) agent from the item pane.
+
+## Build and install
+
+Run `npm ci` and `npm run build` with Node.js 22 or newer. Install the `.xpi` from `.scaffold/build` through Zotero's **Tools → Plugins** menu.
+
+Open **Settings → Zotero ACP Agent** and save an agent profile with its executable, arguments, working directory, and any required environment variables. Select a default agent, then open the **Agent** section on a library item and send a prompt. The executable must speak ACP over stdio. Use an absolute path if the executable is outside Zotero's PATH.
+
+## Development
+
+- Set `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` to the Zotero executable and run `npm test` for integration tests in an isolated Zotero profile and library.
+- Run `npm run test:typecheck` for the test and source types and `npm run lint:check` for formatting and lint.
+- For interactive development with `npm start`, see `.env.example` for Zotero profile and data directory settings.
+
+Native Gecko subprocess transport was validated on Zotero 10.0.9 for macOS with Codex ACP and the fixture agent. Zotero launches and owns the agent process directly.
