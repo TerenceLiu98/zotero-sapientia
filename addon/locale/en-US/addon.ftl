@@ -60,7 +60,7 @@ acp-stop-timeout = The agent did not stop, so it has been disconnected.
 error-unexpected = Something went wrong.
 
 # Settings
-prefs-title = Zotero ACP Agent
+prefs-title = Sapientia
 prefs-agents = Agents
 prefs-no-agent = No agents yet.
 prefs-agent-add = Add agent

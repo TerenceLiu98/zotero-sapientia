@@ -4,7 +4,7 @@
   "version": "0.1.6",
   "description": "Chat with your own ACP agent beside your Zotero library.",
   "config": {
-    "addonName": "Zotero ACP Agent",
+    "addonName": "Sapientia",
     "addonID": "zotero-sapientia@terenceliu98.github.io",
     "addonRef": "sapientia",
     "addonInstance": "Sapientia",

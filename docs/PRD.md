@@ -1,6 +1,6 @@
-# PRD：Zotero ACP Agent 插件
+# PRD：Sapientia 插件
 
-- **产品名称**：Zotero ACP Agent
+- **产品名称**：Sapientia
 - **文档版本**：v0.2（精简限制性表述，新增参考项目）
 - **状态**：初稿
 - **产品形态**：Zotero 桌面端插件
@@ -13,7 +13,7 @@
 
 ### 1.1 产品定位
 
-Zotero ACP Agent 是一个连接 Zotero 与用户自有 AI Agent 的轻量级插件。
+Sapientia 是一个连接 Zotero 与用户自有 AI Agent 的轻量级插件。
 
 插件通过 ACP（Agent Client Protocol）连接用户指定的 Agent，将 Zotero 中的论文、PDF 文本、选中文本、批注等上下文提供给 Agent，并将 Agent 生成的内容通过 Zotero API 写入笔记、标签等数据。
 
@@ -482,7 +482,7 @@ Agent 通过 ACP 与插件建立交互；Zotero 工具通过 MCP 暴露，优先
 ### 6.2 系统模块
 
 ```text
-Zotero ACP Agent Plugin
+Sapientia
 │
 ├── UI
 │   ├── Sidebar
