@@ -11,7 +11,9 @@ import {
 } from "../agents/store";
 import { AgentConnection, type AgentEvent } from "../acp/connection";
 import { modelsFromConfig, type SessionModels } from "../acp/models";
-import { READ_CURRENT_PAPER, type WriteHandoff } from "../context/paper-tools";
+import { READ_CURRENT_PAPER } from "../context/paper-tools";
+import { WriteApprovals } from "../writes/approval";
+import type { WriteHandoff } from "../writes/request";
 import { startPaperTools } from "../context/tool-server";
 import { READ_MATERIALS, readAllowed } from "../context/read-scope";
 import { UserError } from "../utils/errors";
@@ -55,6 +57,7 @@ type Listener = (state: ChatState) => void;
  * and every new session starts an empty transcript.
  */
 export class ChatController {
+  readonly writes = new WriteApprovals();
   private state: ChatState = {
     agentName: null,
     connection: "disconnected",
@@ -472,7 +475,7 @@ export class ChatController {
               signal: turn.abort.signal,
             };
           }
-        }, this.writeHandoff);
+        }, this.writeHandoff ?? this.writes.request);
       }
       const restoreId =
         restore && this.restorableSession?.profileId === profile.id
@@ -743,10 +746,10 @@ function promptBlocks(
       });
     }
   }
-  if (paper && toolTurnId && READ_MATERIALS.some(readAllowed)) {
+  if (paper && toolTurnId) {
     blocks.push({
       type: "text",
-      text: `Use the zotero-sapientia tools with turnId "${toolTurnId}" to read permitted material for this paper. For PDFs, prefer a page or range when the relevant pages are known. Cite the exact page URI returned by the tool.`,
+      text: `Use the zotero-sapientia tools with turnId "${toolTurnId}". ${READ_MATERIALS.some(readAllowed) ? "For permitted PDF reads, prefer a page or range when the relevant pages are known. Cite the exact page URI returned by the tool. " : ""}Use propose_zotero_write for requested note or tag changes and wait for user approval.`,
     });
   }
   const selections = context?.selections.filter(

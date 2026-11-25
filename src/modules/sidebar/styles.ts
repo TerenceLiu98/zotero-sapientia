@@ -219,6 +219,32 @@ export const CHAT_STYLES =
   background: transparent;
   color: var(--fill-secondary);
 }
+.sap-write-review, .sap-write-history {
+  flex: none;
+  min-width: 0;
+  margin: 6px 10px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.sap-write-review h3 { margin: 0 0 5px; font-size: inherit; }
+.sap-write-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 22vh;
+  overflow: auto;
+}
+.sap-write-row { padding: 5px 2px; border-top: 1px solid var(--color-border); }
+.sap-write-note { margin: 3px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sap-write-tags { margin: 3px 0; padding-inline-start: 16px; }
+.sap-write-target, .sap-write-status { font-size: 11px; color: var(--fill-secondary); }
+.sap-write-error { color: var(--color-invalid); }
+.sap-write-actions { display: flex; justify-content: end; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.sap-write-history-row { display: flex; justify-content: space-between; align-items: start; gap: 6px; }
+.sap-write-history-row > div { min-width: 0; }
+.sap-write-history-row > button { flex: none; }
 ` +
   COMPOSER_STYLES +
   ANSWER_STYLES;

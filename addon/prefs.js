@@ -3,3 +3,4 @@
 pref("profiles", "[]");
 pref("defaultProfileId", "");
 pref("readScope", "");
+pref("allowTagDeletion", false);

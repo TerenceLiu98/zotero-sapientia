@@ -22,6 +22,7 @@ import { createAnswerSelection } from "./answer-selection";
 import { createComposer } from "./composer";
 import { createContextView, selectionSource } from "./context";
 import { createThinkingState } from "./thinking";
+import { createWriteReview } from "./write-review";
 
 export interface ChatView {
   element: HTMLElement;
@@ -73,6 +74,7 @@ export function createChatView(
     h(doc, "div", { class: "sap-chat-notice-actions" }, restore),
   );
   const transcript = h(doc, "div", { class: "sap-chat-transcript" });
+  const writeReview = createWriteReview(doc, chat.writes);
 
   function button(label: MessageId, glyph: IconNode, action: () => void) {
     return iconButton(doc, getString(label), glyph, action);
@@ -133,11 +135,14 @@ export function createChatView(
         disconnect,
       ),
       h(doc, "div", { class: "sap-chat-identity" }, agentName, status),
+      writeReview.historyButton,
       button("action-agent-settings", Settings, openSettings),
     ),
     notice,
+    writeReview.historyPanel,
     transcript,
     context.element,
+    writeReview.element,
     composer.element,
     answerSelection.element,
   );
@@ -318,6 +323,7 @@ export function createChatView(
       unsubscribe();
       composer.destroy();
       answerSelection.destroy();
+      writeReview.destroy();
       context.destroy();
       for (const item of mounted.values())
         if (item.role === "assistant") item.destroy();

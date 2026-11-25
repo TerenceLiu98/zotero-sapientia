@@ -14,7 +14,13 @@ For another ACP agent, open **Settings → Zotero ACP Agent** and save an agent 
 
 Open **Settings → Zotero ACP Agent** to control which parts of the current paper the agent can read. Metadata, PDF text, the current PDF selection, annotations, child notes, and tags are enabled by default. The plugin binds each request to the paper selected when the prompt was sent. The agent can request a physical PDF page, an inclusive range, or the full attachment. A scanned page without a text layer requires OCR in the agent's toolset.
 
-The plugin registers its existing loopback Model Context Protocol (MCP) endpoint when the agent advertises HTTP MCP over ACP. The local Codex configuration used for verification had no Zotero MCP tools, so the endpoint covers those reads directly with Zotero's bundled document worker. This deployment adds no sidecar or third-party source. The tool catalog exposes reads. The Phase 2 write handoff cancels proposals, and the sidebar approval integration is tracked in [issue #4](https://github.com/TerenceLiu98/zotero-sapientia/issues/4).
+The plugin registers its loopback Model Context Protocol (MCP) endpoint when the agent advertises HTTP MCP over ACP. The local Codex configuration used for verification had no Zotero MCP tools, so the endpoint covers those reads directly with Zotero's bundled document worker.
+
+## Approve and undo writes
+
+When an agent proposes a child note or tag change, the sidebar shows each target, operation, and payload. Confirm runs the reviewed changes in order. Cancel stops pending operations and lets any operation already in progress finish. The sidebar reports each outcome and keeps successful changes available under **Write history**. Undo restores the original note or tag state when the affected content still matches the recorded result. Tag deletion requires an additional opt-in under **Settings → Zotero ACP Agent**.
+
+The approval card follows the public interaction design of the [affectUI Approval Card](https://www.affectui.com/components/approval-card) and uses native Zotero DOM and styles.
 
 ## Development
 

@@ -18,6 +18,10 @@ import {
 } from "../../agents/store";
 import { getString, type MessageId } from "../../utils/locale";
 import {
+  setTagDeletionAllowed,
+  tagDeletionAllowed,
+} from "../../writes/request";
+import {
   READ_MATERIALS,
   readAllowed,
   setReadAllowed,
@@ -126,6 +130,14 @@ export function renderSettingsPane(
     value: null,
     onChange: (value) => setDefaultProfileId(value ?? ""),
   });
+  const tagDeletion = h(doc, "input", {
+    type: "checkbox",
+    id: id("allow-tag-deletion"),
+    checked: tagDeletionAllowed(),
+  });
+  tagDeletion.addEventListener("change", () =>
+    setTagDeletionAllowed(tagDeletion.checked),
+  );
   const root = h(
     doc,
     "div",
@@ -165,6 +177,18 @@ export function renderSettingsPane(
         );
         return h(doc, "label", {}, input, getString(`prefs-read-${material}`));
       }),
+    ),
+    h(
+      doc,
+      "fieldset",
+      { class: "sap-prefs-section sap-prefs-scope" },
+      h(
+        doc,
+        "legend",
+        { class: "sap-prefs-heading" },
+        getString("prefs-write-scope"),
+      ),
+      h(doc, "label", {}, tagDeletion, getString("prefs-allow-tag-deletion")),
     ),
   );
 

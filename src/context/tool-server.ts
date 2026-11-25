@@ -2,12 +2,8 @@ import type { McpServer } from "@agentclientprotocol/sdk";
 import { z } from "zod";
 import { version } from "../../package.json";
 import { redactor } from "../utils/log";
-import {
-  callPaperTool,
-  listPaperTools,
-  type ResolveTurn,
-  type WriteHandoff,
-} from "./paper-tools";
+import type { WriteHandoff } from "../writes/request";
+import { callPaperTool, listPaperTools, type ResolveTurn } from "./paper-tools";
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const MAX_REQUEST_BYTES = 64 * 1024;
@@ -82,7 +78,7 @@ function writeJson(response: nsIHttpResponse, value: object) {
 /** A stateless MCP endpoint whose credentials belong to one ACP connection. */
 export function startPaperTools(
   active: ResolveTurn,
-  handoff: WriteHandoff = async () => {}, // Phase 2 cancels at the handoff.
+  handoff: WriteHandoff,
 ): {
   server: McpServer;
   close(): Promise<void>;
