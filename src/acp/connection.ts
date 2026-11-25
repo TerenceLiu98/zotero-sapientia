@@ -9,6 +9,7 @@ import type { LaunchSpec } from "../agents/launch";
 import { withTimeout } from "../utils/async";
 import { UserError } from "../utils/errors";
 import { redactor } from "../utils/log";
+import { modelsFromConfig, type SessionModels } from "./models";
 import { launchProcess, type AgentProcess } from "./process";
 
 export const CLIENT_NAME = "zotero-sapientia";
@@ -137,15 +138,15 @@ export class AgentConnection {
    * Reopens a session the agent was in before. The agent replays the session
    * as `update` events before this resolves.
    *
-   * @returns false if the agent no longer has the session.
+   * @returns null if the agent no longer has the session.
    */
   async loadSession(
     sessionId: string,
     cwd: string,
     mcpServers: McpServer[] = [],
-  ): Promise<boolean> {
+  ): Promise<acp.LoadSessionResponse | null> {
     try {
-      await this.send(() =>
+      return await this.send(() =>
         withTimeout(
           this.connection.agent.request(acp.methods.agent.session.load, {
             sessionId,
@@ -156,16 +157,40 @@ export class AgentConnection {
           () => new UserError("acp-timeout", { operation: "session/load" }),
         ),
       );
-      return true;
     } catch (error) {
       if (
         error instanceof acp.RequestError &&
         error.code === SESSION_NOT_FOUND
       ) {
-        return false;
+        return null;
       }
       throw error;
     }
+  }
+
+  async setModel(
+    sessionId: string,
+    configId: string,
+    modelId: string,
+  ): Promise<SessionModels | null> {
+    const response = await this.send(() =>
+      withTimeout(
+        this.connection.agent.request(
+          acp.methods.agent.session.setConfigOption,
+          {
+            sessionId,
+            configId,
+            value: modelId,
+          },
+        ),
+        REQUEST_TIMEOUT_MS,
+        () =>
+          new UserError("acp-timeout", {
+            operation: "session/set_config_option",
+          }),
+      ),
+    );
+    return modelsFromConfig(response.configOptions);
   }
 
   /** Sends a prompt and resolves once the agent's turn has ended. */

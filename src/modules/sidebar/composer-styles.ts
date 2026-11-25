@@ -48,40 +48,93 @@ export const COMPOSER_STYLES = `
   gap: 8px;
   min-width: 0;
 }
-.sap-composer-agent {
-  position: relative;
+.sap-composer-picker {
   min-width: 0;
   max-width: calc(100% - 42px);
-  color: var(--fill-secondary);
 }
-.sap-composer-agent-select {
+.sap-composer-picker-trigger {
   appearance: none;
-  display: block;
-  width: 100%;
-  height: 29px;
-  padding: 0 24px 0 7px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  height: 34px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--fill-primary);
-  font-size: 12px;
-  text-overflow: ellipsis;
+  font-size: 14px;
   cursor: pointer;
 }
-.sap-composer-agent-select:hover:enabled {
+.sap-composer-picker-trigger:hover:enabled,
+.sap-composer-picker-trigger[aria-expanded="true"] {
   background: var(--fill-quinary);
 }
-.sap-composer-agent-select:disabled {
+.sap-composer-picker-trigger:disabled {
   color: var(--fill-tertiary);
   cursor: default;
 }
-.sap-composer-agent-chevron {
-  position: absolute;
-  top: 50%;
+.sap-composer-picker-chevron {
   display: flex;
-  inset-inline-end: 6px;
-  transform: translateY(-50%);
-  pointer-events: none;
+  flex: none;
+  color: var(--fill-secondary);
+}
+.sap-composer-picker-trigger[aria-expanded="true"] .sap-composer-picker-chevron {
+  transform: rotate(180deg);
+}
+.sap-composer-picker-label,
+.sap-composer-picker-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sap-composer-picker-list {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--color-border50, var(--color-border));
+  border-radius: 12px;
+  background: var(--color-control);
+  color: var(--fill-primary);
+  box-shadow: 0 14px 34px -13px rgba(0, 0, 0, .25), 0 2px 5px rgba(0, 0, 0, .06);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.sap-composer-picker-group + .sap-composer-picker-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border50, var(--color-border));
+}
+.sap-composer-picker-option {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 17px;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  user-select: none;
+}
+.sap-composer-picker-option.is-active,
+.sap-composer-picker-option:hover {
+  background: var(--fill-quinary);
+}
+.sap-composer-picker-option[aria-disabled="true"] { cursor: default; }
+.sap-composer-picker-icon,
+.sap-composer-picker-check { display: flex; align-items: center; justify-content: center; }
+.sap-composer-picker-icon { color: var(--fill-secondary); }
+.sap-composer-picker-icon[data-provider="claude"] { color: #d97858; }
+.sap-composer-picker-check { visibility: hidden; }
+.sap-composer-picker-option[aria-selected="true"] .sap-composer-picker-check { visibility: visible; }
+.sap-composer-picker-status { padding: 6px 10px; color: var(--fill-secondary); font-size: 12px; }
 }
 .sap-chat-composer button.sap-composer-send {
   display: grid;
@@ -107,7 +160,6 @@ export const COMPOSER_STYLES = `
   color: var(--fill-tertiary);
   cursor: default;
 }
-.sap-composer-agent-select:focus-visible,
 .sap-chat-composer button:focus-visible {
   outline: 2px solid var(--color-focus-border);
   outline-offset: 1px;

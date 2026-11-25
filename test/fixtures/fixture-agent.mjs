@@ -46,6 +46,26 @@ const logPath = arg("log");
 const storePath = arg("store");
 const capabilities = JSON.parse(arg("capabilities", '{"loadSession":true}'));
 const mode = arg("mode", "normal");
+const offersModels = argv.includes("--models");
+const modelConfig = (currentValue = "fast") => [
+  {
+    id: "fixture-model",
+    name: "Model",
+    category: "model",
+    type: "select",
+    currentValue,
+    options: [
+      {
+        group: "fixture",
+        name: "Fixture",
+        options: [
+          { value: "fast", name: "Fixture Fast" },
+          { value: "careful", name: "Fixture Careful" },
+        ],
+      },
+    ],
+  },
+];
 const STORE_VERSION = 1;
 
 let sessionCounter = 0;
@@ -283,7 +303,10 @@ async function handle(message) {
         updates: [],
       };
       writeStore(sessions);
-      return reply(id, { sessionId });
+      return reply(id, {
+        sessionId,
+        ...(offersModels ? { configOptions: modelConfig() } : {}),
+      });
     }
     case "session/load": {
       const session = readStore()[params.sessionId];
@@ -291,7 +314,19 @@ async function handle(message) {
       for (const value of session.updates) {
         update(params.sessionId, value);
       }
-      return reply(id, {});
+      return reply(
+        id,
+        offersModels ? { configOptions: modelConfig(session.model) } : {},
+      );
+    }
+    case "session/set_config_option": {
+      const sessions = readStore();
+      const session = sessions[params.sessionId];
+      if (!session || !offersModels || params.configId !== "fixture-model")
+        return refuse(id, -32602, "unknown model option");
+      session.model = params.value;
+      writeStore(sessions);
+      return reply(id, { configOptions: modelConfig(session.model) });
     }
     case "session/prompt": {
       const sessions = readStore();

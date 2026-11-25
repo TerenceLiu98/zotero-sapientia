@@ -10,6 +10,7 @@ import {
   setDefaultProfileId,
 } from "../agents/store";
 import { AgentConnection, type AgentEvent } from "../acp/connection";
+import { modelsFromConfig, type SessionModels } from "../acp/models";
 import { UserError } from "../utils/errors";
 import { logError, redactor } from "../utils/log";
 import { foldUpdate, type ChatMessage } from "./transcript";
@@ -31,6 +32,8 @@ export interface ChatState {
   messages: ChatMessage[];
   /** The interrupted conversation can be reopened. */
   canRestore: boolean;
+  models: SessionModels | null;
+  changingModel: boolean;
 }
 
 /** How long an agent gets to end a cancelled turn before it is considered stuck. */
@@ -56,6 +59,8 @@ export class ChatController {
     error: null,
     messages: [],
     canRestore: false,
+    models: null,
+    changingModel: false,
   };
 
   private readonly listeners = new Set<Listener>();
@@ -72,6 +77,7 @@ export class ChatController {
   /** The turn in flight; updates that do not belong to it are dropped. */
   private turn: Turn | null = null;
   private nextMessageNumber = 1;
+  private changingModel: Promise<void> | null = null;
 
   getState(): ChatState {
     return this.state;
@@ -100,6 +106,16 @@ export class ChatController {
     return this.connecting;
   }
 
+  /** Start the selected session when the sidebar opens, before the first prompt. */
+  async warm(): Promise<void> {
+    if (this.state.connection !== "disconnected" || this.state.canRestore)
+      return;
+    if (!loadProfiles().length && !(await discoverAgentProfiles()).length)
+      return;
+    if (this.state.connection === "disconnected" && !this.state.canRestore)
+      await this.connect();
+  }
+
   async disconnect(): Promise<void> {
     const connection = this.connection;
     this.connection = null;
@@ -115,21 +131,25 @@ export class ChatController {
       this.update({
         connection: "disconnected",
         canRestore: this.restorableSession !== null,
+        models: null,
       });
     }
   }
 
   async selectAgent(id: string): Promise<void> {
-    if (this.turn || this.connecting) return;
+    if (this.turn || this.changingModel) return;
     const local = loadProfiles().some((profile) => profile.id === id);
     if (
       !local &&
       !(await discoverAgentProfiles()).some((profile) => profile.id === id)
     )
       return;
-    if (this.turn || this.connecting) return;
+    if (this.turn || this.changingModel) return;
+    if (getDefaultProfileId() === id && (this.connecting || this.connection))
+      return;
     setDefaultProfileId(id);
-    if (this.connection && this.profileId !== id) await this.disconnect();
+    if (this.connecting || (this.connection && this.profileId !== id))
+      await this.disconnect();
     if (this.profileId !== id) {
       this.restorableSession = null;
       this.update({
@@ -137,8 +157,49 @@ export class ChatController {
         agentName: null,
         canRestore: false,
         error: null,
+        models: null,
       });
     }
+    await this.connect();
+  }
+
+  async selectModel(id: string): Promise<void> {
+    const { models } = this.state;
+    const connection = this.connection;
+    const sessionId = this.sessionId;
+    if (
+      !connection ||
+      !sessionId ||
+      !models ||
+      this.turn ||
+      this.connecting ||
+      this.changingModel ||
+      models.currentId === id ||
+      !models.options.some((option) => option.id === id)
+    )
+      return;
+
+    this.changingModel = connection
+      .setModel(sessionId, models.configId, id)
+      .then((updated) => {
+        if (this.connection === connection && this.sessionId === sessionId)
+          this.update({ models: updated });
+      })
+      .catch((error) => {
+        if (this.connection !== connection || this.sessionId !== sessionId)
+          return;
+        const failure = toFailure(error);
+        logError(
+          `Model selection failed (${failure.key}) ${JSON.stringify(failure.params)}`,
+        );
+        this.update({ error: failure });
+      })
+      .finally(() => {
+        this.changingModel = null;
+        this.update({ changingModel: false });
+      });
+    this.update({ changingModel: true, error: null });
+    await this.changingModel;
   }
 
   /**
@@ -174,6 +235,7 @@ export class ChatController {
     if (!(await this.connect())) {
       return false;
     }
+    if (this.changingModel) await this.changingModel;
     const connection = this.connection;
     const sessionId = this.sessionId;
     if (
@@ -253,6 +315,7 @@ export class ChatController {
     if (
       !connection ||
       this.connecting ||
+      this.changingModel ||
       this.turn ||
       this.state.connection !== "connected"
     )
@@ -292,6 +355,7 @@ export class ChatController {
       canRestore: false,
       error: null,
       connection: "disconnected",
+      models: null,
     });
   }
 
@@ -361,25 +425,30 @@ export class ChatController {
     connection: AgentConnection,
     restoreId: string | null = null,
   ): Promise<void> {
-    this.update({ messages: [], canRestore: false });
+    this.update({ messages: [], canRestore: false, models: null });
     if (restoreId && connection.supportsSessionRestore) {
       this.replaying = restoreId;
-      let found: boolean;
+      let response: acp.LoadSessionResponse | null;
       try {
-        found = await connection.loadSession(restoreId, this.sessionCwd);
+        response = await connection.loadSession(restoreId, this.sessionCwd);
       } finally {
         this.replaying = null;
       }
       if (this.connection !== connection) return;
-      if (found) {
+      if (response) {
         this.sessionId = restoreId;
+        if (response.configOptions)
+          this.update({ models: modelsFromConfig(response.configOptions) });
         return;
       }
     }
-    const { sessionId } = await connection.newSession(this.sessionCwd);
+    const { sessionId, configOptions } = await connection.newSession(
+      this.sessionCwd,
+    );
     if (this.connection !== connection) return;
     this.sessionId = sessionId;
     this.restorableSession = null;
+    this.update({ models: modelsFromConfig(configOptions) });
   }
 
   private handleEvent(event: AgentEvent): void {
@@ -390,6 +459,13 @@ export class ChatController {
     if (event.type === "exit") {
       if (this.connection) {
         this.fail(this.connection.exitError());
+      }
+      return;
+    }
+    const { sessionId, update } = event.params;
+    if (update.sessionUpdate === "config_option_update") {
+      if (sessionId === this.sessionId || sessionId === this.replaying) {
+        this.update({ models: modelsFromConfig(update.configOptions) });
       }
       return;
     }
@@ -457,6 +533,7 @@ export class ChatController {
       connection: "error",
       error: failure,
       canRestore: this.restorableSession !== null,
+      models: null,
     });
     return false;
   }

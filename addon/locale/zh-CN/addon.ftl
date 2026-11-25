@@ -31,6 +31,9 @@ thinking-tool = 工具调用
 action-stop = 停止
 
 composer-placeholder = 向你的 Agent 提问…
+composer-agent-model = Agent 和模型
+composer-models = 模型
+composer-models-loading = 正在加载模型…
 
 # 回合的结束方式
 turn-cancelled = 已停止。

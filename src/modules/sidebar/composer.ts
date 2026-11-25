@@ -1,16 +1,18 @@
-import { ArrowUp, ChevronDown, Square } from "lucide";
+import { ArrowUp, Square } from "lucide";
 import { config } from "../../../package.json";
 import { discoverAgentProfiles } from "../../agents/discovery";
 import type { AgentProfile } from "../../agents/profile";
 import { getDefaultProfile, loadProfiles } from "../../agents/store";
 import type { ChatState } from "../../chat/controller";
 import { getString } from "../../utils/locale";
-import { h, iconButton, lucideIcon, setIconButton } from "../ui/dom";
+import { h, iconButton, setIconButton } from "../ui/dom";
+import { createComposerPicker } from "./composer-picker";
 
 interface ComposerActions {
   send(text: string): Promise<boolean>;
   stop(): Promise<void>;
   selectAgent(id: string): Promise<void>;
+  selectModel(id: string): Promise<void>;
 }
 
 export function createComposer(doc: Document, actions: ComposerActions) {
@@ -21,22 +23,9 @@ export function createComposer(doc: Document, actions: ComposerActions) {
     placeholder: getString("composer-placeholder"),
     "aria-label": getString("composer-placeholder"),
   });
-  const picker = h(doc, "select", {
-    class: "sap-composer-agent-select",
-    "aria-label": getString("prefs-default-agent"),
+  const picker = createComposerPicker(doc, ({ kind, id }) => {
+    void switchSelection(kind, id);
   });
-  const agentPicker = h(
-    doc,
-    "div",
-    { class: "sap-composer-agent" },
-    picker,
-    h(
-      doc,
-      "span",
-      { class: "sap-composer-agent-chevron" },
-      lucideIcon(doc, ChevronDown, 13),
-    ),
-  );
   const send = iconButton(
     doc,
     getString("action-send"),
@@ -56,7 +45,7 @@ export function createComposer(doc: Document, actions: ComposerActions) {
       "div",
       { class: "sap-composer-card" },
       input,
-      h(doc, "div", { class: "sap-composer-toolbar" }, agentPicker, send),
+      h(doc, "div", { class: "sap-composer-toolbar" }, picker.element, send),
     ),
   );
 
@@ -64,6 +53,7 @@ export function createComposer(doc: Document, actions: ComposerActions) {
   let submitting = false;
   let switching = false;
   let discoveredProfiles: AgentProfile[] = [];
+  let profiles: AgentProfile[] = [];
   let disposed = false;
 
   function resize(): void {
@@ -75,7 +65,10 @@ export function createComposer(doc: Document, actions: ComposerActions) {
     const running =
       state?.execution === "executing" || state?.execution === "cancelling";
     const pending =
-      submitting || switching || state?.connection === "connecting";
+      submitting ||
+      switching ||
+      state?.changingModel ||
+      state?.connection === "connecting";
     setIconButton(
       send,
       getString(running ? "action-stop" : "action-send"),
@@ -85,18 +78,20 @@ export function createComposer(doc: Document, actions: ComposerActions) {
       ? state?.execution === "cancelling"
       : pending || !input.value.trim();
     send.dataset.mode = running ? "stop" : "send";
-    picker.disabled = running || pending;
+    const agent = getDefaultProfile(profiles);
+    picker.render({
+      agents: profiles,
+      agent,
+      models: switching ? null : state?.models,
+      loading: switching || state?.connection === "connecting",
+      disabled:
+        running || submitting || switching || Boolean(state?.changingModel),
+    });
   }
 
   function renderProfiles(): void {
-    const profiles = [...loadProfiles(), ...discoveredProfiles];
-    const selected = getDefaultProfile(profiles);
-    picker.replaceChildren(
-      ...profiles.map(({ id, name }) => h(doc, "option", { value: id }, name)),
-    );
-    picker.value = selected?.id ?? "";
-    picker.title = selected?.name ?? "";
-    agentPicker.hidden = !selected;
+    profiles = [...loadProfiles(), ...discoveredProfiles];
+    renderControls();
   }
 
   async function submit(): Promise<void> {
@@ -119,17 +114,21 @@ export function createComposer(doc: Document, actions: ComposerActions) {
     }
   }
 
-  picker.addEventListener("change", async () => {
+  async function switchSelection(
+    kind: "agent" | "model",
+    id: string,
+  ): Promise<void> {
+    if (switching) return;
     switching = true;
     renderControls();
     try {
-      await actions.selectAgent(picker.value);
+      if (kind === "agent") await actions.selectAgent(id);
+      else await actions.selectModel(id);
     } finally {
       switching = false;
       renderProfiles();
-      renderControls();
     }
-  });
+  }
   input.addEventListener("input", () => {
     resize();
     renderControls();
@@ -162,7 +161,6 @@ export function createComposer(doc: Document, actions: ComposerActions) {
     true,
   );
   renderProfiles();
-  renderControls();
   void discoverAgentProfiles().then((profiles) => {
     if (disposed) return;
     discoveredProfiles = profiles;
@@ -179,6 +177,7 @@ export function createComposer(doc: Document, actions: ComposerActions) {
     destroy() {
       if (disposed) return;
       disposed = true;
+      picker.destroy();
       Zotero.Prefs.unregisterObserver(profileObserver);
       Zotero.Prefs.unregisterObserver(defaultObserver);
     },

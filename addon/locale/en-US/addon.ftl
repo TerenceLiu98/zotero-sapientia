@@ -31,6 +31,9 @@ thinking-tool = Tool call
 action-stop = Stop
 
 composer-placeholder = Ask your agent…
+composer-agent-model = Agent and model
+composer-models = Models
+composer-models-loading = Loading models…
 
 # How a turn ended
 turn-cancelled = Stopped.

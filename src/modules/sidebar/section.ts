@@ -124,6 +124,7 @@ export function mountChatSidebar(
     if (!view) {
       view = createChatView(doc, chat, () => setOpen(false));
       content.append(view.element);
+      void chat.warm();
     }
     view.element.querySelector("textarea")?.focus();
   };

@@ -10,6 +10,7 @@ import { createChatView } from "../src/modules/sidebar/view";
 import { getString } from "../src/utils/locale";
 import {
   ADDON_ID,
+  count,
   type FixtureAgent,
   isAlive,
   makeAgent,
@@ -508,6 +509,8 @@ describe("the docked chat panel", function () {
       doc.getElementById("zotero-tabs-toolbar"),
     );
     assert.isTrue(pane.hidden, "the sidebar starts closed");
+    const agent = await makeAgent("docked chat");
+    use(agent.profile(["--models"]));
     togglePane();
     assert.isFalse(pane.hidden);
     assert.equal(toggle.getAttribute("aria-pressed"), "true");
@@ -525,9 +528,32 @@ describe("the docked chat panel", function () {
     press(window, grip, "ArrowLeft");
     assert.equal(grip.getAttribute("aria-valuenow"), "420");
 
-    const agent = await makeAgent("docked chat");
-    use(agent.profile());
+    const picker = pane.querySelector<HTMLButtonElement>(
+      ".sap-composer-picker-trigger",
+    )!;
+    await until(() => picker.textContent?.includes("Fixture Fast"));
+    assert.equal(count(await agent.received(), "session/prompt"), 0);
+    picker.click();
+    const list = pane.querySelector<HTMLElement>(".sap-composer-picker-list")!;
+    assert.isTrue(list.matches(":popover-open"));
+    assert.isAtMost(
+      list.getBoundingClientRect().bottom,
+      picker.getBoundingClientRect().top,
+    );
+    list.querySelector<HTMLElement>('[data-model-id="careful"]')!.click();
+    await until(() => picker.textContent?.includes("Fixture Careful"));
+    assert.equal(count(await agent.received(), "session/new"), 1);
     await plugin().chat.send("echo:The key result is self-attention.");
+    const requests = await agent.received();
+    assert.deepEqual(
+      requests.map((request) => request.method),
+      [
+        "initialize",
+        "session/new",
+        "session/set_config_option",
+        "session/prompt",
+      ],
+    );
     typeInto(composer, "Follow-up draft");
     const closeLabel = getString("action-close-pane");
     const closeButton = pane.querySelector<HTMLButtonElement>(
@@ -542,6 +568,18 @@ describe("the docked chat panel", function () {
       pane.querySelector(".sap-msg-assistant")!.textContent!,
       "self-attention",
     );
+    const second = await makeAgent("second docked agent");
+    saveProfiles([
+      agent.profile(["--models"]),
+      second.profile(["--models"], { id: "second", name: "Second Agent" }),
+    ]);
+    picker.click();
+    list.querySelector<HTMLElement>('[data-agent-id="second"]')!.click();
+    await until(() => picker.textContent?.includes("Fixture Fast"));
+    assert.equal(plugin().chat.getState().agentName, "Second Agent");
+    assert.equal(count(await second.received(), "session/new"), 1);
+    assert.equal(count(await second.received(), "session/prompt"), 0);
+    assert.equal(pane.querySelector("textarea")!.value, "Follow-up draft");
     togglePane();
     await reset();
   });
