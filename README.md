@@ -10,10 +10,19 @@ Open the sidebar from the **Zotero ACP Agent** toolbar button. The composer list
 
 For another ACP agent, open **Settings → Zotero ACP Agent** and save an agent profile with its executable, arguments, working directory, and any required environment variables. Use an absolute executable path if needed.
 
+## Paper access
+
+Open **Settings → Zotero ACP Agent** to control which parts of the current paper the agent can read. Metadata, PDF text, the current PDF selection, annotations, child notes, and tags are enabled by default. The plugin binds each request to the paper selected when the prompt was sent. The agent can request a physical PDF page, an inclusive range, or the full attachment. A scanned page without a text layer requires OCR in the agent's toolset.
+
+The plugin registers its existing loopback Model Context Protocol (MCP) endpoint when the agent advertises HTTP MCP over ACP. The local Codex configuration used for verification had no Zotero MCP tools, so the endpoint covers those reads directly with Zotero's bundled document worker. This deployment adds no sidecar or third-party source. The tool catalog exposes reads. The Phase 2 write handoff cancels proposals, and the sidebar approval integration is tracked in [issue #4](https://github.com/TerenceLiu98/zotero-sapientia/issues/4).
+
 ## Development
 
 - Set `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` to the Zotero executable and run `npm test` for integration tests in an isolated Zotero profile and library.
+- Set `SAPIENTIA_TEST_CODEX_ACP` to the absolute path of an authenticated Codex ACP adapter to also run the live paper test. It sends synthetic fixture data to the configured provider and checks a single-page answer, a selected passage, a range summary, and a sidebar citation jump.
 - Run `npm run test:typecheck` for the test and source types and `npm run lint:check` for formatting and lint.
 - For interactive development with `npm start`, see `.env.example` for Zotero profile and data directory settings.
 
 Native Gecko subprocess transport was validated on Zotero 10.0.9 for macOS with Codex ACP and the fixture agent. Zotero launches and owns the agent process directly.
+
+On Zotero 10.0.9 for macOS with Codex CLI 0.172.0 and Codex ACP 2.12.0, the live test answered a question from physical page 1, explained the selected text, and summarized pages 2–3 of a synthetic three-page PDF. Clicking the last citation opened physical page 3 of that attachment.

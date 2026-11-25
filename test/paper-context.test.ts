@@ -1,24 +1,43 @@
 import { assert } from "chai";
 import { saveProfiles } from "../src/agents/store";
+import { ChatController } from "../src/chat/controller";
+import { createPaperContext } from "../src/context/paper";
+import { READ_MATERIALS, setReadAllowed } from "../src/context/read-scope";
 import { CHAT_PANE_ID, CHAT_TOGGLE_ID } from "../src/modules/sidebar/section";
 import { mainWindow, makeAgent, plugin, reset, until, use } from "./helpers";
 
-/** Write a two-page text PDF with distinct text on each physical page. */
-async function makePaper(directory: string, title: string, marker: string) {
-  const stream = (text: string) => {
-    const content = `BT /F1 14 Tf 40 720 Td (${text}) Tj ET\n`;
+/** Create a PDF fixture with plain text, blank, or image-only pages. */
+async function makePaper(
+  directory: string,
+  title: string,
+  marker: string,
+  {
+    parent,
+    pages = [`${marker} page one`, `${marker} page two`],
+    complete = true,
+  }: {
+    parent?: Zotero.Item;
+    pages?: (string | null)[];
+    complete?: boolean;
+  } = {},
+) {
+  const stream = (text: string | null) => {
+    const content =
+      text === null
+        ? "q 10 0 0 10 40 720 cm BI /W 1 /H 1 /CS /G /BPC 8 /F /AHx ID 00> EI Q\n"
+        : text
+          ? `BT /F1 14 Tf 40 720 Td (${text}) Tj ET\n`
+          : "";
     return `<< /Length ${content.length} >>\nstream\n${content}endstream`;
   };
   const page = (streamID: number) =>
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents ${streamID} 0 R >>`;
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${streamID} 0 R >>`;
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
-    page(6),
-    page(7),
+    `<< /Type /Pages /Kids [${pages.map((_, index) => `${4 + index} 0 R`).join(" ")}] /Count ${pages.length} >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    stream(`${marker} page one`),
-    stream(`${marker} page two`),
+    ...pages.map((_, index) => page(4 + pages.length + index)),
+    ...pages.map(stream),
   ];
   let pdf = "%PDF-1.4\n";
   const offsets = objects.map((object, index) => {
@@ -27,17 +46,23 @@ async function makePaper(directory: string, title: string, marker: string) {
     return `${String(offset).padStart(10, "0")} 00000 n \n`;
   });
   const start = pdf.length;
-  pdf += `xref\n0 8\n0000000000 65535 f \n${offsets.join("")}trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${start}\n%%EOF\n`;
+  const size = objects.length + 1;
+  pdf += `xref\n0 ${size}\n0000000000 65535 f \n${offsets.join("")}trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF\n`;
   const path = PathUtils.join(directory, `${marker}.pdf`);
   await IOUtils.writeUTF8(path, pdf);
-  const item = new Zotero.Item("journalArticle");
-  item.setField("title", title);
-  item.setField("date", "2024");
-  item.setField("DOI", `10.1000/${marker}`);
-  item.setCreators([
-    { creatorType: "author", firstName: "Ada", lastName: "Bell" },
-  ]);
-  await item.saveTx();
+  const item = parent ?? new Zotero.Item("journalArticle");
+  if (!parent) {
+    item.setField("title", title);
+    if (complete) {
+      item.setField("date", "2024");
+      item.setField("DOI", `10.1000/${marker}`);
+      item.setField("abstractNote", `Abstract of ${marker}`);
+      item.setCreators([
+        { creatorType: "author", firstName: "Ada", lastName: "Bell" },
+      ]);
+    }
+    await item.saveTx();
+  }
   return Zotero.Attachments.importFromFile({
     file: path,
     parentItemID: item.id,
@@ -45,6 +70,28 @@ async function makePaper(directory: string, title: string, marker: string) {
 }
 
 type Reader = _ZoteroTypes.ReaderInstance;
+
+function setSelection(reader: Reader, text: string | null, page = 1) {
+  const state = reader._internalReader._state as unknown as {
+    primaryViewSelectionPopup: {
+      annotation: {
+        text: string;
+        pageLabel: string;
+        position: { pageIndex: number };
+      };
+    } | null;
+  };
+  state.primaryViewSelectionPopup =
+    text === null
+      ? null
+      : {
+          annotation: {
+            text,
+            pageLabel: String(page),
+            position: { pageIndex: page - 1 },
+          },
+        };
+}
 
 function attachSelection(reader: Reader, text: string, doc: Document) {
   const buttons: HTMLButtonElement[] = [];
@@ -80,6 +127,370 @@ function submit(pane: XULElement, question: string) {
 describe("paper context in the Zotero reader", function () {
   this.timeout(60000);
 
+  it("reads pages and selections through an installed Codex ACP adapter", async function () {
+    const adapter = Services.env.get("SAPIENTIA_TEST_CODEX_ACP");
+    if (!adapter) return this.skip();
+    this.timeout(180000);
+    await reset();
+    const fixture = await makeAgent("Codex ACP");
+    use(
+      fixture.profile([], {
+        command: adapter,
+        args: [],
+        name: "Codex ACP",
+        env: {},
+      }),
+    );
+    const attachment = await makePaper(
+      fixture.dir,
+      "ACP fixture",
+      "codex-acp",
+      {
+        pages: [
+          "The instrument aperture measured 37 millimeters.",
+          "The trial enrolled 83 participants.",
+          "The median follow-up was 19 days.",
+        ],
+      },
+    );
+    const win = mainWindow();
+    const pane = win.document.getElementById(CHAT_PANE_ID) as XULElement;
+    const toggle = win.document.getElementById(CHAT_TOGGLE_ID)!;
+    const chat = plugin().chat;
+    await Zotero.Reader.open(attachment.id);
+    const reader = Zotero.Reader.getByTabID(win.Zotero_Tabs.selectedID)!;
+    await until(() => !!reader._internalReader?._state);
+    const url = `zotero://open-pdf/library/items/${attachment.key}`;
+
+    async function ask(question: string): Promise<Element> {
+      const count = chat.getState().messages.length;
+      submit(pane, question);
+      await until(
+        () =>
+          chat.getState().messages.length === count + 2 &&
+          chat.getState().execution === "idle",
+        { timeout: 50000 },
+      );
+      const state = chat.getState();
+      assert.isNull(state.error, state.error?.message);
+      const turn = pane
+        .querySelectorAll<Element>(".sap-answer")
+        .item(count / 2);
+      assert.exists(turn);
+      return turn;
+    }
+    try {
+      if (pane.hidden) toggle.dispatchEvent(new win.Event("command"));
+      assert.isTrue(
+        await chat.connect(),
+        chat.getState().error?.params.message as string,
+      );
+      const answer = await ask(
+        "Use the Zotero PDF tool to read only physical page 1. What instrument aperture did it measure? Cite the exact returned Zotero page URI as a Markdown link.",
+      );
+      assert.match(answer.textContent!, /37\s*(?:millimeters|mm)/i);
+      assert.exists(
+        answer.querySelector(`a.sap-citation[href="${url}?page=1"]`),
+      );
+
+      setSelection(
+        reader,
+        "The calibration sample was equilibrated for 47 minutes.",
+      );
+      const explanation = await ask(
+        "Use the Zotero selection tool to read my current selection. Explain in plain words what it says, including the duration.",
+      );
+      assert.match(explanation.textContent!, /47\s*(?:minutes|min)/i);
+      setSelection(reader, null);
+
+      const summary = await ask(
+        "Use the Zotero PDF tool with startPage 2 and endPage 3. Summarize enrollment and follow-up with one exact Zotero page URI citation per fact.",
+      );
+      assert.include(summary.textContent, "83");
+      assert.include(summary.textContent, "19");
+      const second = summary.querySelector<HTMLAnchorElement>(
+        `a.sap-citation[href="${url}?page=2"]`,
+      );
+      const third = summary.querySelector<HTMLAnchorElement>(
+        `a.sap-citation[href="${url}?page=3"]`,
+      );
+      assert.exists(second);
+      assert.exists(third);
+      third!.click();
+      await until(
+        () => reader._internalReader._state.primaryViewStats.pageIndex === 2,
+      );
+    } finally {
+      await chat.disconnect();
+    }
+  });
+
+  it("enforces MCP read scope and cancels a pending write in the Zotero library", async () => {
+    await reset();
+    const agent = await makeAgent("scoped tools");
+    use(agent.profile(["--capabilities", '{"mcpCapabilities":{"http":true}}']));
+    const pdf = await makePaper(agent.dir, "Scoped paper", "scoped", {
+      pages: ["", "first marker", "middle marker", "last marker", ""],
+    });
+    const item = pdf.parentItem!;
+    const scan = await makePaper(agent.dir, "Scoped paper", "scan", {
+      parent: item,
+      pages: [null],
+    });
+    const excluded = await makePaper(agent.dir, "Excluded paper", "excluded", {
+      complete: false,
+    });
+    const note = new Zotero.Item("note");
+    note.libraryID = item.libraryID;
+    note.parentID = item.id;
+    note.setNote("<p>Fixture note</p>");
+    await note.saveTx();
+    item.setTags(["fixture tag"]);
+    await item.saveTx();
+    for (const page of [2, 4]) {
+      const annotation = new Zotero.Item("annotation");
+      annotation.libraryID = pdf.libraryID;
+      annotation.parentID = pdf.id;
+      annotation.annotationType = "highlight";
+      annotation.annotationText = `Highlight ${page}`;
+      annotation.annotationColor = "#ffd400";
+      annotation.annotationPageLabel = String(page);
+      annotation.annotationSortIndex = `0000${page}|000000|00000`;
+      annotation.annotationPosition = JSON.stringify({
+        pageIndex: page - 1,
+        rects: [[40, 715, 140, 732]],
+      });
+      await annotation.saveTx();
+    }
+
+    const win = mainWindow();
+    const tracker = createPaperContext(
+      win,
+      () => {},
+      () => {},
+      "Ask Agent",
+    );
+    let proposal:
+      import("../src/context/paper-tools").WriteProposal | undefined;
+    const chat = new ChatController(async (pending, signal) => {
+      proposal = pending;
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    });
+    type Call = [string, Record<string, unknown>?];
+    const names = [
+      "read_paper_metadata",
+      "read_current_paper",
+      "read_paper_selection",
+      "read_paper_annotations",
+      "read_paper_notes",
+      "read_paper_tags",
+    ];
+    let resultCount = 0;
+    const results = async () => {
+      const entries = (await agent.received()).filter(
+        ({ event }) => event === "zotero-tool",
+      );
+      const next = entries.slice(resultCount).map(({ result }) => result);
+      resultCount = entries.length;
+      return next;
+    };
+    const send = (calls: Call[]) =>
+      chat.send(`zotero-tools:${JSON.stringify(calls)}`, {
+        paper: tracker.read(),
+        selections: [],
+        readSelection: tracker.readSelection,
+      });
+    const run = async (calls: Call[]) => {
+      assert.isTrue(await send(calls));
+      const response = await results();
+      assert.lengthOf(response, calls.length);
+      return response;
+    };
+    const value = (result: {
+      isError?: boolean;
+      content: { text: string }[];
+    }) => {
+      assert.isNotTrue(result.isError, result.content[0].text);
+      return JSON.parse(result.content[0].text);
+    };
+    const denied = (result: {
+      isError?: boolean;
+      content: { text: string }[];
+    }) => {
+      assert.isTrue(result.isError);
+      assert.notMatch(
+        result.content[0].text,
+        /marker|Fixture note|Excluded paper|Highlight|fixture tag/,
+      );
+    };
+    async function open(attachment: Zotero.Item) {
+      await Zotero.Reader.open(attachment.id);
+      await until(
+        () =>
+          tracker.read()?.attachment?.itemID === attachment.id &&
+          !!Zotero.Reader.getByTabID(win.Zotero_Tabs.selectedID)
+            ?._internalReader?._state,
+      );
+    }
+
+    try {
+      await open(pdf);
+      const reader = Zotero.Reader.getByTabID(win.Zotero_Tabs.selectedID)!;
+      setSelection(reader, "first marker", 2);
+      const targets: Call[] = names.map((name) => [
+        name,
+        name === names[1] ? { page: 2 } : {},
+      ]);
+      const [metadata, page, selection, annotations, notes, tags] = (
+        await run(targets)
+      ).map(value);
+      assert.deepInclude(metadata, {
+        itemID: item.id,
+        itemKey: item.key,
+        title: "Scoped paper",
+        authors: ["Ada Bell"],
+        abstract: "Abstract of scoped",
+        doi: "10.1000/scoped",
+        year: "2024",
+      });
+      assert.sameMembers(
+        metadata.attachments.map((entry: { itemKey: string }) => entry.itemKey),
+        [pdf.key, scan.key],
+      );
+      assert.equal(page.attachmentKey, pdf.key);
+      assert.deepEqual(
+        page.pages.map(({ page, text }: { page: number; text: string }) => [
+          page,
+          text,
+        ]),
+        [[2, "first marker"]],
+      );
+      assert.deepEqual(selection.selection, {
+        text: "first marker",
+        page: 2,
+        pageLabel: "2",
+        uri: `zotero://open-pdf/library/items/${pdf.key}?page=2`,
+      });
+      assert.deepEqual(
+        annotations.annotations.map((entry: { page: number; text: string }) => [
+          entry.page,
+          entry.text,
+        ]),
+        [
+          [2, "Highlight 2"],
+          [4, "Highlight 4"],
+        ],
+      );
+      assert.include(notes.notes[0].html, "Fixture note");
+      assert.deepEqual(tags.tags, item.getTags());
+
+      setSelection(reader, null);
+      const [cleared, range, full, invalid, scanned] = await run([
+        [names[2]],
+        [names[1], { startPage: 3, endPage: 5 }],
+        [names[1]],
+        [names[1], { startPage: 3, endPage: 6 }],
+        [names[1], { attachmentKey: scan.key, page: 1 }],
+      ]);
+      assert.isNull(value(cleared).selection);
+      assert.deepEqual(
+        value(range).pages.map((entry: { text: string }) => entry.text),
+        ["middle marker", "last marker", ""],
+      );
+      assert.deepEqual(
+        value(full).pages.map((entry: { text: string }) => entry.text),
+        ["", "first marker", "middle marker", "last marker", ""],
+      );
+      denied(invalid);
+      assert.include(invalid.content[0].text, "1 to 5");
+      denied(scanned);
+      assert.include(scanned.content[0].text, "no extractable text");
+
+      (
+        await run(
+          names.map((name) => [name, { itemID: excluded.parentID }] as Call),
+        )
+      ).forEach(denied);
+      (
+        await run(
+          [names[1], names[2], names[3]].map(
+            (name) => [name, { attachmentKey: excluded.key }] as Call,
+          ),
+        )
+      ).forEach(denied);
+      for (const material of READ_MATERIALS) setReadAllowed(material, false);
+      for (const material of READ_MATERIALS) {
+        setReadAllowed(material, true);
+        (
+          await run(
+            names
+              .filter((_, i) => READ_MATERIALS[i] !== material)
+              .map((name) => [name]),
+          )
+        ).forEach(denied);
+        setReadAllowed(material, false);
+      }
+      const prompts = (await agent.received()).filter(
+        ({ method }) => method === "session/prompt",
+      );
+      assert.notInclude(
+        JSON.stringify(prompts.at(-1)!.params.prompt),
+        "Scoped paper",
+      );
+      READ_MATERIALS.forEach((material) => setReadAllowed(material, true));
+
+      const [directWrite] = await run([
+        [
+          "create_note",
+          {
+            itemID: item.id,
+            html: "<p>Unapproved change</p>",
+          },
+        ],
+      ]);
+      denied(directWrite);
+      assert.deepEqual(item.getNotes(), [note.id]);
+      const write = send([
+        [
+          "propose_zotero_write",
+          {
+            operation: "create_note",
+            itemKey: item.key,
+            change: { html: "<p>Cancelled change</p>" },
+          },
+        ],
+      ]);
+      await until(() => !!proposal);
+      assert.deepInclude(proposal, {
+        operation: "create_note",
+        change: { html: "<p>Cancelled change</p>" },
+      });
+      assert.equal(proposal!.target.itemKey, item.key);
+      assert.deepEqual(item.getNotes(), [note.id]);
+      await chat.stop();
+      assert.isTrue(await write);
+      assert.equal(value((await results())[0]).status, "cancelled");
+      assert.deepEqual(item.getNotes(), [note.id]);
+
+      await open(excluded);
+      const incomplete = value((await run([[names[0]]]))[0]);
+      assert.deepInclude(incomplete, {
+        itemKey: excluded.parentItem!.key,
+        authors: [],
+        abstract: null,
+        doi: null,
+        year: null,
+      });
+    } finally {
+      READ_MATERIALS.forEach((material) => setReadAllowed(material, true));
+      tracker.dispose();
+      await chat.disconnect();
+    }
+  });
+
   it("sends explicit selections and keeps a page citation bound to the original PDF", async function () {
     await reset();
     const agent = await makeAgent("reader context");
@@ -91,6 +502,9 @@ describe("paper context in the Zotero reader", function () {
     );
     const aTitle = `Paper A ${"A long title ".repeat(8).trim()}`;
     const a = await makePaper(agent.dir, aTitle, "alpha");
+    const alternate = await makePaper(agent.dir, aTitle, "alternate", {
+      parent: a.parentItem,
+    });
     const b = await makePaper(agent.dir, "Paper B", "beta");
     const win = mainWindow();
     const doc = win.document;
@@ -234,7 +648,13 @@ describe("paper context in the Zotero reader", function () {
       assert.include(pdf.text, "alpha page one");
       assert.include(pdf.text, "alpha page two");
       assert.notInclude(pdf.text, "beta page");
-      const link = pane.querySelector<HTMLAnchorElement>(".sap-citation")!;
+      const links = pane.querySelectorAll<HTMLAnchorElement>(".sap-citation");
+      assert.lengthOf(links, 2);
+      const [link, secondLink] = links;
+      assert.include(
+        pane.querySelector(".sap-answer-text")!.textContent!,
+        "Unspecified PDF Unspecified page",
+      );
       const transcript = pane.querySelector<HTMLElement>(
         ".sap-chat-transcript",
       )!;
@@ -252,6 +672,12 @@ describe("paper context in the Zotero reader", function () {
       await until(
         () =>
           reader()?.itemID === a.id &&
+          reader()?._internalReader?._state?.primaryViewStats?.pageIndex === 1,
+      );
+      secondLink.click();
+      await until(
+        () =>
+          reader()?.itemID === alternate.id &&
           reader()?._internalReader?._state?.primaryViewStats?.pageIndex === 1,
       );
       await open(b);

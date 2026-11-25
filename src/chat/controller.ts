@@ -11,7 +11,9 @@ import {
 } from "../agents/store";
 import { AgentConnection, type AgentEvent } from "../acp/connection";
 import { modelsFromConfig, type SessionModels } from "../acp/models";
-import { READ_CURRENT_PAPER, startPdfTool } from "../context/pdf-tool";
+import { READ_CURRENT_PAPER, type WriteHandoff } from "../context/paper-tools";
+import { startPaperTools } from "../context/tool-server";
+import { READ_MATERIALS, readAllowed } from "../context/read-scope";
 import { UserError } from "../utils/errors";
 import { logError, redactor } from "../utils/log";
 import { foldUpdate, type ChatMessage, type TurnContext } from "./transcript";
@@ -66,7 +68,7 @@ export class ChatController {
 
   private readonly listeners = new Set<Listener>();
   private connection: AgentConnection | null = null;
-  private pdfTool: ReturnType<typeof startPdfTool> | null = null;
+  private paperTools: ReturnType<typeof startPaperTools> | null = null;
   private sessionCwd: string = defaultWorkspace();
   private sessionId: string | null = null;
   /** The session to offer for restoration once the connection is gone. */
@@ -80,6 +82,8 @@ export class ChatController {
   private turn: Turn | null = null;
   private nextMessageNumber = 1;
   private changingModel: Promise<void> | null = null;
+
+  constructor(private readonly writeHandoff?: WriteHandoff) {}
 
   getState(): ChatState {
     return this.state;
@@ -291,7 +295,11 @@ export class ChatController {
       onAccepted?.();
       const response = await connection.prompt(
         sessionId,
-        promptBlocks(prompt, context, this.pdfTool ? turn.assistantId : null),
+        promptBlocks(
+          prompt,
+          context,
+          this.paperTools ? turn.assistantId : null,
+        ),
       );
       turn.settle();
       if (this.turn === turn) {
@@ -322,6 +330,7 @@ export class ChatController {
   ): Promise<void> {
     if (!turn.cancelled) {
       turn.cancelled = true;
+      turn.abort.abort();
       this.update({ execution: "cancelling" });
       try {
         await connection.cancel(sessionId);
@@ -448,17 +457,22 @@ export class ChatController {
         if (this.connection === connection) this.handleEvent(event);
       });
       if (connection.capabilities.mcpCapabilities?.http) {
-        this.pdfTool = startPdfTool((turnId) => {
+        this.paperTools = startPaperTools((turnId) => {
           const turn = this.turn;
           if (
             this.connection === connection &&
             this.sessionId &&
             turn?.assistantId === turnId &&
-            !turn.cancelled
+            !turn.abort.signal.aborted &&
+            turn.context?.paper
           ) {
-            return turn.context?.paper?.attachment;
+            return {
+              paper: turn.context.paper,
+              readSelection: turn.context.readSelection,
+              signal: turn.abort.signal,
+            };
           }
-        });
+        }, this.writeHandoff);
       }
       const restoreId =
         restore && this.restorableSession?.profileId === profile.id
@@ -486,7 +500,7 @@ export class ChatController {
     restoreId: string | null = null,
   ): Promise<void> {
     this.update({ canRestore: false, models: null });
-    const mcpServers = this.pdfTool ? [this.pdfTool.server] : [];
+    const mcpServers = this.paperTools ? [this.paperTools.server] : [];
     if (restoreId && connection.supportsSessionRestore) {
       this.replaying = restoreId;
       let response: acp.LoadSessionResponse | null;
@@ -559,6 +573,7 @@ export class ChatController {
     if (!turn) {
       return;
     }
+    turn.abort.abort();
     this.update({
       execution: "idle",
       messages: this.state.messages.map((message) =>
@@ -609,10 +624,10 @@ export class ChatController {
   private async close(connection: AgentConnection): Promise<void> {
     const releaseSecrets = this.releaseSecrets;
     this.releaseSecrets = null;
-    const pdfTool = this.pdfTool;
-    this.pdfTool = null;
+    const paperTools = this.paperTools;
+    this.paperTools = null;
     try {
-      await Promise.all([connection.close(), pdfTool?.close()]);
+      await Promise.all([connection.close(), paperTools?.close()]);
     } finally {
       releaseSecrets?.();
     }
@@ -632,6 +647,7 @@ export class ChatController {
 
 /** A turn in flight: the assistant message it fills and whether it was cancelled. */
 class Turn {
+  readonly abort = new AbortController();
   /** Resolves once the agent has answered the prompt request, one way or another. */
   readonly settled: Promise<void>;
   private declareSettled!: () => void;
@@ -652,27 +668,36 @@ class Turn {
   }
 }
 
-function snapshotContext({ paper, selections }: TurnContext): TurnContext {
+function snapshotContext({
+  paper,
+  selections,
+  readSelection,
+}: TurnContext): TurnContext {
   return {
     paper: paper && {
       ...paper,
       authors: [...paper.authors],
       attachment: paper.attachment && { ...paper.attachment },
+      ...(paper.attachments && {
+        attachments: paper.attachments.map((attachment) => ({ ...attachment })),
+      }),
       materials: { ...paper.materials },
     },
     selections: selections.map((selection) => ({ ...selection })),
+    ...(readSelection && { readSelection }),
   };
 }
 
 function promptBlocks(
   text: string,
   context: TurnContext | undefined,
-  pdfTurnId: string | null,
+  toolTurnId: string | null,
 ): acp.ContentBlock[] {
   const blocks: acp.ContentBlock[] = [{ type: "text", text }];
   const paper = context?.paper;
-  if (paper) {
+  if (paper && readAllowed("metadata")) {
     const {
+      itemID,
       itemKey,
       libraryID,
       title,
@@ -681,14 +706,16 @@ function promptBlocks(
       doi,
       year,
       attachment,
+      attachments,
     } = paper;
     const pdfTool =
-      attachment && paper.materials.pdfText && pdfTurnId
-        ? { name: READ_CURRENT_PAPER, turnId: pdfTurnId }
+      attachment && readAllowed("pdf") && toolTurnId
+        ? { name: READ_CURRENT_PAPER, turnId: toolTurnId }
         : undefined;
     blocks.push({
       type: "text",
       text: `Current Zotero paper (metadata):\n${JSON.stringify({
+        itemID,
         itemKey,
         libraryID,
         title,
@@ -697,6 +724,7 @@ function promptBlocks(
         doi,
         year,
         pdf: attachment?.uri,
+        attachments,
         pdfTool,
         page:
           attachment?.pageIndex === undefined
@@ -708,28 +736,34 @@ function promptBlocks(
     if (attachment) {
       blocks.push({
         type: "text",
-        text: "Cite known pages in the current PDF using Markdown links such as [p. 3](#page=3). Use the 1-based physical PDF page number.",
+        text:
+          attachments && attachments.length > 1
+            ? "Cite known pages using the exact Markdown link URI returned for that attachment and page."
+            : "Cite known pages using their exact Zotero URI, or a Markdown link such as [p. 3](#page=3) for this single PDF. Use the 1-based physical PDF page number.",
       });
-      if (pdfTool) {
-        blocks.push({
-          type: "text",
-          text: "When you need the full PDF text, call the tool named in pdfTool with its turnId.",
-        });
-      }
     }
   }
-  if (context?.selections.length) {
+  if (paper && toolTurnId && READ_MATERIALS.some(readAllowed)) {
+    blocks.push({
+      type: "text",
+      text: `Use the zotero-sapientia tools with turnId "${toolTurnId}" to read permitted material for this paper. For PDFs, prefer a page or range when the relevant pages are known. Cite the exact page URI returned by the tool.`,
+    });
+  }
+  const selections = context?.selections.filter(
+    (selection) => "answerId" in selection || readAllowed("selection"),
+  );
+  if (selections?.length) {
     blocks.push({
       type: "text",
       text: `Excerpts the user added. Cite PDF excerpts with their exact source URI. Excerpts from previous answers are conversation context.\n${JSON.stringify(
-        context.selections.map((selection) => {
+        selections.map((selection) => {
           if ("answerId" in selection) {
             return { text: selection.text, source: "previous_agent_answer" };
           }
           const { text, itemTitle, pageIndex, pageLabel, uri } = selection;
           return {
             text,
-            title: itemTitle,
+            title: readAllowed("metadata") ? itemTitle : undefined,
             page: pageIndex === undefined ? undefined : pageIndex + 1,
             pageLabel,
             uri,

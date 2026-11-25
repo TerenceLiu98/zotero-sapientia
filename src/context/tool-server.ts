@@ -2,9 +2,12 @@ import type { McpServer } from "@agentclientprotocol/sdk";
 import { z } from "zod";
 import { version } from "../../package.json";
 import { redactor } from "../utils/log";
-import type { PaperContext } from "./paper";
-
-export const READ_CURRENT_PAPER = "read_current_paper";
+import {
+  callPaperTool,
+  listPaperTools,
+  type ResolveTurn,
+  type WriteHandoff,
+} from "./paper-tools";
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const MAX_REQUEST_BYTES = 64 * 1024;
@@ -15,26 +18,6 @@ const rpcMessage = z.object({
   method: z.string(),
   params: z.record(z.string(), z.unknown()).optional(),
 });
-const readArgs = z.strictObject({ turnId: z.string().min(1) });
-const tool = {
-  name: READ_CURRENT_PAPER,
-  description: "Read the full text of the Zotero PDF supplied for this turn.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      turnId: {
-        type: "string",
-        description: "The turn ID supplied in the prompt's Zotero context.",
-      },
-    },
-    required: ["turnId"],
-    additionalProperties: false,
-  },
-  annotations: { readOnlyHint: true, openWorldHint: false },
-};
-
-type Attachment = PaperContext["attachment"];
-type ResolveAttachment = (turnId: string) => Attachment;
 const classes = Components.classes as unknown as Record<
   string,
   {
@@ -47,46 +30,10 @@ function invalid(code: number, message: string) {
   return { error: { code, message } };
 }
 
-function toolError(text: string) {
-  return { isError: true, content: [{ type: "text", text }] };
-}
-
-async function readCurrentPaper(turnId: string, active: ResolveAttachment) {
-  const attachment = active(turnId);
-  if (!attachment) return toolError("There is no active PDF for this turn.");
-
-  try {
-    const { text, extractedPages, totalPages } =
-      (await Zotero.PDFWorker.getFullText(attachment.itemID, null, true)) as {
-        text: string;
-        extractedPages: number;
-        totalPages: number;
-      };
-    if (active(turnId) !== attachment)
-      return toolError("This turn is no longer active.");
-    if (!text.trim()) return toolError("The PDF contains no extractable text.");
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            attachmentKey: attachment.itemKey,
-            url: attachment.uri,
-            text,
-            extractedPages,
-            totalPages,
-          }),
-        },
-      ],
-    };
-  } catch {
-    return toolError("The text of this PDF could not be read.");
-  }
-}
-
 async function answerRpc(
   message: z.infer<typeof rpcMessage>,
-  active: ResolveAttachment,
+  active: ResolveTurn,
+  handoff: WriteHandoff,
 ) {
   const { method, params } = message;
   switch (method) {
@@ -107,14 +54,16 @@ async function answerRpc(
     case "ping":
       return { result: {} };
     case "tools/list":
-      return { result: { tools: [tool] } };
-    case "tools/call": {
-      const args = readArgs.safeParse(params?.arguments);
-      if (params?.name !== READ_CURRENT_PAPER || !args.success) {
-        return invalid(-32602, "Expected read_current_paper with a turnId.");
-      }
-      return { result: await readCurrentPaper(args.data.turnId, active) };
-    }
+      return { result: { tools: listPaperTools() } };
+    case "tools/call":
+      return {
+        result: await callPaperTool(
+          params?.name,
+          params?.arguments,
+          active,
+          handoff,
+        ),
+      };
     default:
       return invalid(-32601, "Method not found.");
   }
@@ -130,8 +79,11 @@ function writeJson(response: nsIHttpResponse, value: object) {
   stream.flush();
 }
 
-/** A stateless MCP endpoint whose credentials and PDF scope belong to one ACP connection. */
-export function startPdfTool(active: ResolveAttachment): {
+/** A stateless MCP endpoint whose credentials belong to one ACP connection. */
+export function startPaperTools(
+  active: ResolveTurn,
+  handoff: WriteHandoff = async () => {}, // Phase 2 cancels at the handoff.
+): {
   server: McpServer;
   close(): Promise<void>;
 } {
@@ -214,8 +166,10 @@ export function startPdfTool(active: ResolveAttachment): {
       status(202, "Accepted");
       return;
     }
-    const result = await answerRpc(parsed.data, (id) =>
-      closed ? undefined : active(id),
+    const result = await answerRpc(
+      parsed.data,
+      (id) => (closed ? undefined : active(id)),
+      handoff,
     );
     writeJson(response, { jsonrpc: "2.0", id: parsed.data.id, ...result });
   }

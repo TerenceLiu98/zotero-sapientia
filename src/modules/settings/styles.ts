@@ -22,6 +22,18 @@ export const SETTINGS_STYLES = `
   font-size: 13px;
   font-weight: 600;
 }
+.sap-prefs-scope {
+  min-inline-size: 0;
+  margin-inline: 0;
+  padding: 0;
+  border: 0;
+}
+.sap-prefs-scope label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-block: 4px;
+}
 
 .sap-prefs-list {
   display: flex;

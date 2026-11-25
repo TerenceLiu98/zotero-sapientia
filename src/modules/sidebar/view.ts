@@ -234,7 +234,10 @@ export function createChatView(
         answer.element.hidden = !answerText;
         answer.render({
           text: answerText,
-          pdfUrl: current.context?.paper?.attachment?.uri,
+          pdfUrl:
+            (current.context?.paper?.attachments?.length ?? 1) === 1
+              ? current.context?.paper?.attachment?.uri
+              : undefined,
           streaming: !current.stopReason,
           stopping: state.execution === "cancelling",
           regenerate:

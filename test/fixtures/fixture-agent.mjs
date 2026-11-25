@@ -138,7 +138,7 @@ function record(session, value) {
   writeStore(sessions);
 }
 
-async function readCurrentPaper(server, turnId) {
+async function callZoteroTool(server, name, args) {
   const headers = Object.fromEntries(
     server.headers.map(({ name, value }) => [name, value]),
   );
@@ -169,9 +169,13 @@ async function readCurrentPaper(server, turnId) {
   if (!catalog?.tools.some(({ name }) => name === "read_current_paper"))
     throw new Error("MCP did not list the PDF reader");
   return request(3, "tools/call", {
-    name: "read_current_paper",
-    arguments: { turnId },
+    name,
+    arguments: args,
   });
+}
+
+function readCurrentPaper(server, turnId) {
+  return callZoteroTool(server, "read_current_paper", { turnId });
 }
 
 async function runTurn(id, session, prompt) {
@@ -293,6 +297,22 @@ async function runTurn(id, session, prompt) {
       }
       return end("end_turn");
     }
+    case "zotero-tools": {
+      const context = prompt.find((block) =>
+        block.text?.startsWith("Use the zotero-sapientia tools with turnId"),
+      );
+      const turnId = /turnId "([^"]+)"/.exec(context?.text)?.[1];
+      const calls = JSON.parse(rest.join(":"));
+      for (const [name, args] of calls) {
+        const result = await callZoteroTool(session.mcpServers[0], name, {
+          turnId,
+          ...args,
+        });
+        log({ event: "zotero-tool", name, result });
+      }
+      chunk("Finished Zotero tool calls.");
+      return end(turn.cancelled ? "cancelled" : "end_turn");
+    }
     case "cite": {
       chunk("**Result**\n\n");
       const switched = join(process.cwd(), "paper-switched");
@@ -304,14 +324,21 @@ async function runTurn(id, session, prompt) {
       const metadata = prompt.find((block) =>
         block.text?.startsWith("Current Zotero paper (metadata):\n"),
       );
-      const { pdfTool } = JSON.parse(metadata.text.split("\n", 2)[1]);
+      const { pdfTool, pdf, attachments } = JSON.parse(
+        metadata.text.split("\n", 2)[1],
+      );
       const { turnId } = pdfTool;
       session.previousPdfTurnId = turnId;
       const result = await readCurrentPaper(session.mcpServers[0], turnId);
       log({ event: "pdf-text", result });
       if (turn.cancelled) return end("cancelled");
+      const second = attachments.find(({ uri }) => uri !== pdf);
       chunk(
-        "[A long citation label for the specific source passage on page 2](#page=2)\n\n```text\nSource citation\n```",
+        [
+          `[A long citation label for the specific source passage on page 2](${pdf}?page=2)`,
+          `[Second PDF page 2](${second.uri}?page=2) [Unspecified PDF](#page=2) [Unspecified page](${second.uri})`,
+          "```text\nSource citation\n```",
+        ].join("\n\n"),
       );
       return end("end_turn");
     }
