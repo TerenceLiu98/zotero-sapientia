@@ -1,7 +1,7 @@
 {
   "name": "zotero-sapientia",
   "type": "module",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Chat with your own ACP agent beside your Zotero library.",
   "config": {
     "addonName": "Zotero ACP Agent",

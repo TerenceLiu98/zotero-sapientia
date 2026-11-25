@@ -60,7 +60,10 @@ const modelConfig = (currentValue = "fast") => [
         name: "Fixture",
         options: [
           { value: "fast", name: "Fixture Fast" },
-          { value: "careful", name: "Fixture Careful" },
+          {
+            value: "careful",
+            name: "Fixture Careful Research Model with Extended Reasoning",
+          },
         ],
       },
     ],

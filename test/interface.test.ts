@@ -542,6 +542,27 @@ describe("the docked chat panel", function () {
     );
     list.querySelector<HTMLElement>('[data-model-id="careful"]')!.click();
     await until(() => picker.textContent?.includes("Fixture Careful"));
+    for (let step = 0; step < 6; step++) {
+      press(window, grip, "ArrowRight");
+    }
+    assert.equal(grip.getAttribute("aria-valuenow"), "300");
+    const modelLabel = picker.querySelector<HTMLElement>(
+      ".sap-composer-picker-label",
+    )!;
+    assert.equal(
+      modelLabel.textContent,
+      "Fixture Careful Research Model with Extended Reasoning",
+    );
+    assert.isAbove(modelLabel.clientHeight, 20, "the selected model wraps");
+    assert.isAtMost(
+      modelLabel.scrollWidth,
+      modelLabel.clientWidth,
+      "the full label fits",
+    );
+    assert.isAtMost(
+      picker.getBoundingClientRect().right,
+      pane.querySelector(".sap-composer-send")!.getBoundingClientRect().left,
+    );
     assert.equal(count(await agent.received(), "session/new"), 1);
     await plugin().chat.send("echo:The key result is self-attention.");
     const requests = await agent.received();

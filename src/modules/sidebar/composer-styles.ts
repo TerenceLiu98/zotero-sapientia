@@ -58,13 +58,15 @@ export const COMPOSER_STYLES = `
   align-items: center;
   gap: 7px;
   max-width: 100%;
-  height: 34px;
-  padding: 0 9px;
+  min-height: 34px;
+  padding: 5px 9px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--fill-primary);
   font-size: 14px;
+  line-height: 20px;
+  text-align: start;
   cursor: pointer;
 }
 .sap-composer-picker-trigger:hover:enabled,
@@ -83,7 +85,11 @@ export const COMPOSER_STYLES = `
 .sap-composer-picker-trigger[aria-expanded="true"] .sap-composer-picker-chevron {
   transform: rotate(180deg);
 }
-.sap-composer-picker-label,
+.sap-composer-picker-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
 .sap-composer-picker-option-label {
   min-width: 0;
   overflow: hidden;
@@ -135,7 +141,6 @@ export const COMPOSER_STYLES = `
 .sap-composer-picker-check { visibility: hidden; }
 .sap-composer-picker-option[aria-selected="true"] .sap-composer-picker-check { visibility: visible; }
 .sap-composer-picker-status { padding: 6px 10px; color: var(--fill-secondary); font-size: 12px; }
-}
 .sap-chat-composer button.sap-composer-send {
   display: grid;
   flex: 0 0 34px;
