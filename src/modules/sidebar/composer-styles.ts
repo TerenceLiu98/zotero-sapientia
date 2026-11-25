@@ -8,30 +8,31 @@ export const COMPOSER_STYLES = `
   min-width: 0;
   max-width: 680px;
   margin-bottom: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
+  border: 1px solid var(--color-border50, var(--color-border));
+  border-radius: 20px;
   background: var(--color-control);
 }
 .sap-composer-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   min-width: 0;
-  padding: 11px 10px 9px;
+  padding: 16px 12px 12px;
   cursor: text;
 }
 .sap-chat-composer .sap-chat-input {
   width: 100%;
-  min-height: 48px;
+  display: block;
+  min-height: 50px;
   max-height: 35vh;
   margin: 0;
-  padding: 2px 3px;
+  padding: 2px 4px;
   resize: none;
   border: 0;
   background: transparent;
   color: inherit;
-  font-size: inherit;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 22px;
 }
 .sap-chat-composer textarea.sap-chat-input:is(:focus, :focus-visible) {
   outline: none !important;
@@ -49,22 +50,29 @@ export const COMPOSER_STYLES = `
   min-width: 0;
 }
 .sap-composer-picker {
+  flex: 0 1 auto;
+  width: max-content;
   min-width: 0;
   max-width: calc(100% - 42px);
 }
-.sap-composer-picker-trigger {
+.sap-chat-composer button.sap-composer-picker-trigger {
   appearance: none;
-  display: flex;
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr) 13px;
   align-items: center;
-  gap: 7px;
-  max-width: 100%;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: auto;
   min-height: 34px;
-  padding: 5px 9px;
+  max-height: none;
+  margin: 0;
+  padding: 6px 8px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--fill-primary);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 20px;
   text-align: start;
   cursor: pointer;
@@ -89,6 +97,7 @@ export const COMPOSER_STYLES = `
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: normal;
+  word-break: normal;
 }
 .sap-composer-picker-option-label {
   min-width: 0;
@@ -148,14 +157,14 @@ export const COMPOSER_STYLES = `
   width: 34px;
   min-width: 34px;
   height: 34px;
+  max-height: none;
+  margin: 0;
   padding: 0;
   border: 0;
-  cursor: pointer;
-}
-.sap-chat-composer button.sap-composer-send {
   border-radius: 8px;
   background: var(--fill-primary);
   color: var(--color-control);
+  cursor: pointer;
 }
 .sap-chat-composer button.sap-composer-send:hover:enabled {
   background: var(--fill-secondary);

@@ -532,6 +532,17 @@ describe("the docked chat panel", function () {
       ".sap-composer-picker-trigger",
     )!;
     await until(() => picker.textContent?.includes("Fixture Fast"));
+    const label = picker.querySelector<HTMLElement>(
+      ".sap-composer-picker-label",
+    )!;
+    const send = pane.querySelector<HTMLElement>(".sap-composer-send")!;
+    assert.equal(
+      label.clientHeight,
+      20,
+      "a short model name stays on one line",
+    );
+    assert.isNotNull(picker.querySelector(".sap-composer-picker-icon svg"));
+    assert.equal(send.getBoundingClientRect().height, 34);
     assert.equal(count(await agent.received(), "session/prompt"), 0);
     picker.click();
     const list = pane.querySelector<HTMLElement>(".sap-composer-picker-list")!;
@@ -546,22 +557,19 @@ describe("the docked chat panel", function () {
       press(window, grip, "ArrowRight");
     }
     assert.equal(grip.getAttribute("aria-valuenow"), "300");
-    const modelLabel = picker.querySelector<HTMLElement>(
-      ".sap-composer-picker-label",
-    )!;
     assert.equal(
-      modelLabel.textContent,
+      label.textContent,
       "Fixture Careful Research Model with Extended Reasoning",
     );
-    assert.isAbove(modelLabel.clientHeight, 20, "the selected model wraps");
+    assert.isAbove(label.clientHeight, 20, "the selected model wraps");
     assert.isAtMost(
-      modelLabel.scrollWidth,
-      modelLabel.clientWidth,
+      label.scrollWidth,
+      label.clientWidth,
       "the full label fits",
     );
     assert.isAtMost(
       picker.getBoundingClientRect().right,
-      pane.querySelector(".sap-composer-send")!.getBoundingClientRect().left,
+      send.getBoundingClientRect().left,
     );
     assert.equal(count(await agent.received(), "session/new"), 1);
     await plugin().chat.send("echo:The key result is self-attention.");

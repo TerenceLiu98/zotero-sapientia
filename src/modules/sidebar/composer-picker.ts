@@ -30,6 +30,7 @@ export function createComposerPicker(
 ) {
   const window = doc.defaultView!;
   const listId = `sap-composer-picker-${++nextPickerId}`;
+  const mark = h(doc, "span", { class: "sap-composer-picker-icon" });
   const label = h(doc, "span", { class: "sap-composer-picker-label" });
   const trigger = h(
     doc,
@@ -42,6 +43,7 @@ export function createComposerPicker(
       "aria-expanded": "false",
       "aria-controls": listId,
     },
+    mark,
     label,
     h(
       doc,
@@ -68,6 +70,7 @@ export function createComposerPicker(
   let rows: HTMLElement[] = [];
   let active = -1;
   let opened = false;
+  let previousIcon: ReturnType<typeof agentPresentation>["icon"] | undefined;
 
   function position() {
     const anchor = trigger.getBoundingClientRect();
@@ -300,6 +303,14 @@ export function createComposerPicker(
         ({ id }) => id === next.models?.currentId,
       );
       const text = current?.name ?? next.agent?.name ?? "";
+      const { provider, icon } = current
+        ? modelPresentation(current.name, current.id, next.agent)
+        : agentPresentation(next.agent);
+      if (previousIcon !== icon) {
+        mark.replaceChildren(lucideIcon(doc, icon, 17));
+        previousIcon = icon;
+      }
+      mark.dataset.provider = provider;
       label.textContent = text;
       trigger.title = text;
       trigger.disabled = next.disabled;
