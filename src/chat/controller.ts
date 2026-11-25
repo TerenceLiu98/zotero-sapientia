@@ -13,9 +13,9 @@ import { AgentConnection, type AgentEvent } from "../acp/connection";
 import { modelsFromConfig, type SessionModels } from "../acp/models";
 import { UserError } from "../utils/errors";
 import { logError, redactor } from "../utils/log";
-import { foldUpdate, type ChatMessage } from "./transcript";
+import { foldUpdate, type ChatMessage, type TurnContext } from "./transcript";
 
-export type { AssistantBlock, ChatMessage } from "./transcript";
+export type { AssistantBlock, ChatMessage, TurnContext } from "./transcript";
 
 export type ConnectionState =
   "disconnected" | "connecting" | "connected" | "error";
@@ -206,8 +206,8 @@ export class ChatController {
    * Sends a prompt and resolves when the agent's turn has ended. Resolves false,
    * leaving the text unsent, if no agent could be connected.
    */
-  send(text: string): Promise<boolean> {
-    return this.sendPrompt(text);
+  send(text: string, context?: TurnContext): Promise<boolean> {
+    return this.sendPrompt(text, context && snapshotContext(context));
   }
 
   /** Requests another response to the last question in the current session. */
@@ -221,11 +221,12 @@ export class ChatController {
       !answer.stopReason
     )
       return false;
-    return this.sendPrompt(question.text, assistantId);
+    return this.sendPrompt(question.text, question.context, assistantId);
   }
 
   private async sendPrompt(
     text: string,
+    context?: TurnContext,
     replaceAnswerId?: string,
   ): Promise<boolean> {
     const prompt = text.trim();
@@ -256,12 +257,18 @@ export class ChatController {
           ? this.state.messages.slice(0, -1)
           : [
               ...this.state.messages,
-              { id: this.nextMessageId(), role: "user" as const, text: prompt },
+              {
+                id: this.nextMessageId(),
+                role: "user" as const,
+                text: prompt,
+                context,
+              },
             ]),
         {
           id: turn.assistantId,
           role: "assistant",
           blocks: [],
+          context,
           startedAt: Date.now(),
           stopReason: null,
         },
@@ -269,9 +276,10 @@ export class ChatController {
     });
 
     try {
-      const response = await connection.prompt(sessionId, [
-        { type: "text", text: prompt },
-      ]);
+      const response = await connection.prompt(
+        sessionId,
+        promptBlocks(prompt, context),
+      );
       turn.settle();
       if (this.turn === turn) {
         this.endTurn(turn.cancelled ? "cancelled" : response.stopReason);
@@ -289,16 +297,25 @@ export class ChatController {
   async stop(): Promise<void> {
     const turn = this.turn;
     const connection = this.connection;
-    if (!turn || turn.cancelled || !connection || !this.sessionId) {
-      return;
+    if (turn && connection && this.sessionId) {
+      await this.cancelTurn(turn, connection, this.sessionId);
     }
-    turn.cancelled = true;
-    this.update({ execution: "cancelling" });
-    try {
-      await connection.cancel(this.sessionId);
-    } catch (error) {
-      if (this.turn === turn) this.fail(error);
-      return;
+  }
+
+  private async cancelTurn(
+    turn: Turn,
+    connection: AgentConnection,
+    sessionId: string,
+  ): Promise<void> {
+    if (!turn.cancelled) {
+      turn.cancelled = true;
+      this.update({ execution: "cancelling" });
+      try {
+        await connection.cancel(sessionId);
+      } catch (error) {
+        if (this.turn === turn) this.fail(error);
+        return;
+      }
     }
     const ended = await Promise.race([
       turn.settled.then(() => true),
@@ -309,29 +326,46 @@ export class ChatController {
     }
   }
 
-  /** Starts an empty conversation: a new session on the current connection. */
+  /** Clears the transcript and rejects all later updates from the old turn. */
   async newConversation(): Promise<void> {
     const connection = this.connection;
     if (
       !connection ||
       this.connecting ||
       this.changingModel ||
-      this.turn ||
       this.state.connection !== "connected"
     )
       return;
+    const turn = this.turn;
+    const sessionId = this.sessionId;
+    const abort = new AbortController();
     this.sessionId = null;
-    this.update({ connection: "connecting" });
-    this.connecting = this.openSession(connection)
-      .then(() => {
+    this.restorableSession = null;
+    this.connectAbort = abort;
+    this.connecting = Promise.resolve()
+      .then(async () => {
+        if (turn && sessionId)
+          await this.cancelTurn(turn, connection, sessionId);
+        if (abort.signal.aborted) return false;
+        if (!this.connection) return this.connectOnce(abort.signal, false);
+        if (this.connection !== connection) return false;
+        await this.openSession(connection);
         if (this.connection !== connection) return false;
         this.update({ connection: "connected" });
         return true;
       })
       .catch((error) => this.connection === connection && this.fail(error))
       .finally(() => {
+        this.connectAbort = null;
         this.connecting = null;
       });
+    this.update({
+      connection: "connecting",
+      messages: [],
+      canRestore: false,
+      error: null,
+      models: null,
+    });
     await this.connecting;
   }
 
@@ -425,7 +459,7 @@ export class ChatController {
     connection: AgentConnection,
     restoreId: string | null = null,
   ): Promise<void> {
-    this.update({ messages: [], canRestore: false, models: null });
+    this.update({ canRestore: false, models: null });
     if (restoreId && connection.supportsSessionRestore) {
       this.replaying = restoreId;
       let response: acp.LoadSessionResponse | null;
@@ -436,12 +470,16 @@ export class ChatController {
       }
       if (this.connection !== connection) return;
       if (response) {
+        // The local messages retain the original Zotero context and the
+        // cancelled output the user saw. ACP replay can include prompt blocks
+        // and output that arrived after cancellation.
         this.sessionId = restoreId;
         if (response.configOptions)
           this.update({ models: modelsFromConfig(response.configOptions) });
         return;
       }
     }
+    this.update({ messages: [] });
     const { sessionId, configOptions } = await connection.newSession(
       this.sessionCwd,
     );
@@ -469,15 +507,6 @@ export class ChatController {
       }
       return;
     }
-    if (this.replaying && event.params.sessionId === this.replaying) {
-      this.update({
-        messages: foldUpdate(this.state.messages, event.params.update, {
-          nextId: () => this.nextMessageId(),
-          replay: true,
-        }),
-      });
-      return;
-    }
     // An update that no running turn is waiting for is a late arrival of a
     // cancelled turn, or belongs to another session.
     if (
@@ -488,10 +517,7 @@ export class ChatController {
       return;
     }
     this.update({
-      messages: foldUpdate(this.state.messages, event.params.update, {
-        nextId: () => this.nextMessageId(),
-        replay: false,
-      }),
+      messages: foldUpdate(this.state.messages, update),
     });
   }
 
@@ -587,6 +613,76 @@ class Turn {
   settle(): void {
     this.declareSettled();
   }
+}
+
+function snapshotContext({ paper, selections }: TurnContext): TurnContext {
+  return {
+    paper: paper && {
+      ...paper,
+      authors: [...paper.authors],
+      attachment: paper.attachment && { ...paper.attachment },
+      materials: { ...paper.materials },
+    },
+    selections: selections.map((selection) => ({ ...selection })),
+  };
+}
+
+function promptBlocks(text: string, context?: TurnContext): acp.ContentBlock[] {
+  const blocks: acp.ContentBlock[] = [{ type: "text", text }];
+  const paper = context?.paper;
+  if (paper) {
+    const {
+      itemKey,
+      libraryID,
+      title,
+      authors,
+      abstract,
+      doi,
+      year,
+      attachment,
+    } = paper;
+    blocks.push({
+      type: "text",
+      text: `Current Zotero paper (metadata):\n${JSON.stringify({
+        itemKey,
+        libraryID,
+        title,
+        authors,
+        abstract,
+        doi,
+        year,
+        pdf: attachment?.uri,
+        page:
+          attachment?.pageIndex === undefined
+            ? undefined
+            : attachment.pageIndex + 1,
+        pageLabel: attachment?.pageLabel,
+      })}`,
+    });
+    if (attachment) {
+      blocks.push({
+        type: "text",
+        text: "Cite known pages in the current PDF using Markdown links such as [p. 3](#page=3). Use the 1-based physical PDF page number.",
+      });
+    }
+  }
+  if (context?.selections.length) {
+    blocks.push({
+      type: "text",
+      text: `Excerpts the user added from Zotero (source material). Cite an excerpt with its exact source URI.\n${JSON.stringify(
+        context.selections.map(
+          ({ text, itemTitle, pageIndex, pageLabel, uri }) => ({
+            text,
+            title: itemTitle,
+            page: pageIndex === undefined ? undefined : pageIndex + 1,
+            pageLabel,
+            uri,
+          }),
+        ),
+      )}`,
+    });
+  }
+  return blocks;
 }
 
 function toFailure(error: unknown): UserError {

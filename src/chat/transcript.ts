@@ -1,4 +1,10 @@
 import type * as acp from "@agentclientprotocol/sdk";
+import type { PaperContext, SelectedText } from "../context/paper";
+
+export interface TurnContext {
+  readonly paper?: PaperContext;
+  readonly selections: readonly SelectedText[];
+}
 
 /** One entry of an assistant message, in the order the agent produced it. */
 export type AssistantBlock =
@@ -12,11 +18,12 @@ export type AssistantBlock =
     };
 
 export type ChatMessage =
-  | { id: string; role: "user"; text: string }
+  | { id: string; role: "user"; text: string; context?: TurnContext }
   | {
       id: string;
       role: "assistant";
       blocks: AssistantBlock[];
+      context?: TurnContext;
       startedAt?: number;
       thinkingEndedAt?: number;
       /** How the turn ended, once it has. */
@@ -32,37 +39,12 @@ type ToolChange = {
   status?: acp.ToolCallStatus | null;
 };
 
-export interface FoldOptions {
-  /** Gives ids to the messages an update creates. */
-  nextId: () => string;
-  /**
-   * Whether the updates replay a session the agent remembered. Only then does
-   * a `user_message_chunk` stand for a message the user sent; while a turn is
-   * running, the plugin has already added that message itself.
-   */
-  replay: boolean;
-}
-
-/** How a remembered turn ended: the agent does not say, and it did end. */
-const REMEMBERED_END: acp.StopReason = "end_turn";
-
-/**
- * Folds one session update into the transcript and returns the result.
- *
- * Assistant output joins the last assistant message, or starts one when the
- * last message is the user's, so a turn's output stays with its own message.
- */
+/** Folds one live session update into the assistant's current message. */
 export function foldUpdate(
   messages: ChatMessage[],
   update: acp.SessionUpdate,
-  options: FoldOptions,
 ): ChatMessage[] {
   switch (update.sessionUpdate) {
-    case "user_message_chunk":
-      if (!options.replay || update.content.type !== "text") {
-        return messages;
-      }
-      return appendUser(messages, update.content.text, options);
     case "agent_message_chunk":
     case "agent_thought_chunk": {
       if (update.content.type !== "text") {
@@ -73,67 +55,40 @@ export function foldUpdate(
           update.sessionUpdate === "agent_message_chunk" ? "text" : "thought",
         text: update.content.text,
       };
-      return appendAssistant(messages, block, options);
+      return appendAssistant(messages, block);
     }
     case "tool_call":
     case "tool_call_update":
-      return appendAssistant(
-        messages,
-        {
-          toolCallId: update.toolCallId,
-          title: update.title,
-          status: update.status,
-        },
-        options,
-      );
+      return appendAssistant(messages, {
+        toolCallId: update.toolCallId,
+        title: update.title,
+        status: update.status,
+      });
     default:
       // Modes, plans, usage and the like do not change the transcript.
       return messages;
   }
 }
 
-function appendUser(
-  messages: ChatMessage[],
-  text: string,
-  options: FoldOptions,
-): ChatMessage[] {
-  const last = messages[messages.length - 1];
-  if (last?.role === "user") {
-    return [...messages.slice(0, -1), { ...last, text: last.text + text }];
-  }
-  return [...messages, { id: options.nextId(), role: "user", text }];
-}
-
 function appendAssistant(
   messages: ChatMessage[],
   block: TextBlock | ToolChange,
-  options: FoldOptions,
 ): ChatMessage[] {
   const last = messages[messages.length - 1];
-  if (last?.role === "assistant") {
-    return [
-      ...messages.slice(0, -1),
-      {
-        ...last,
-        blocks: appendBlock(last.blocks, block),
-        thinkingEndedAt:
-          last.thinkingEndedAt ??
-          (last.startedAt &&
-          "type" in block &&
-          block.type === "text" &&
-          block.text.trim()
-            ? Date.now()
-            : undefined),
-      },
-    ];
-  }
+  if (last?.role !== "assistant") return messages;
   return [
-    ...messages,
+    ...messages.slice(0, -1),
     {
-      id: options.nextId(),
-      role: "assistant",
-      blocks: appendBlock([], block),
-      stopReason: options.replay ? REMEMBERED_END : null,
+      ...last,
+      blocks: appendBlock(last.blocks, block),
+      thinkingEndedAt:
+        last.thinkingEndedAt ??
+        (last.startedAt &&
+        "type" in block &&
+        block.type === "text" &&
+        block.text.trim()
+          ? Date.now()
+          : undefined),
     },
   ];
 }

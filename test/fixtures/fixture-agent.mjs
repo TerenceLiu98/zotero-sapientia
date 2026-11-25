@@ -136,7 +136,8 @@ function record(session, value) {
   writeStore(sessions);
 }
 
-async function runTurn(id, session, text) {
+async function runTurn(id, session, prompt) {
+  const text = prompt.find((block) => block.type === "text")?.text ?? "";
   const [, command, ...rest] = /^([\w-]+)(?::(.*))?$/.exec(text) ?? [];
   const say = (value) => {
     update(session.sessionId, value);
@@ -208,6 +209,31 @@ async function runTurn(id, session, text) {
         }
         chunk(`chunk ${index} `);
       }
+      return end("end_turn");
+    }
+    case "cite": {
+      chunk("**Result**\n\n");
+      await sleep(1500);
+      if (turn.cancelled) return end("cancelled");
+      chunk(
+        "[A long citation label for the specific source passage on page 2](#page=2)\n\n```text\nSource citation\n```",
+      );
+      return end("end_turn");
+    }
+    case "recall": {
+      const cited = session.updates.some((update) =>
+        update.content?.text?.includes("Source citation"),
+      );
+      chunk(cited ? "Earlier result: Source citation" : "No earlier result");
+      return end("end_turn");
+    }
+    case "remote": {
+      const response = await fetch(arg("remote-url"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prompt),
+      });
+      chunk(await response.text());
       return end("end_turn");
     }
     case "crash": {
@@ -337,11 +363,7 @@ async function handle(message) {
       if (!session) return refuse(id, -32002, "session not found");
       turn = { cancelled: false };
       try {
-        await runTurn(
-          id,
-          session,
-          params.prompt.find((block) => block.type === "text")?.text ?? "",
-        );
+        await runTurn(id, session, params.prompt);
       } finally {
         turn = null;
       }

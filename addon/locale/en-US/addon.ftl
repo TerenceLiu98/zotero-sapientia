@@ -34,6 +34,14 @@ composer-placeholder = Ask your agent…
 composer-agent-model = Agent and model
 composer-models = Models
 composer-models-loading = Loading models…
+context-metadata = Metadata
+context-pdf-text = PDF text
+context-selection = Selection
+context-annotations = Annotations
+context-add-selection = Add selection to chat
+context-remove-selection = Remove selection
+context-selection-source = { $title }, p. { $page }
+context-processing = Shared material is processed by the configured Agent, locally or remotely.
 
 # How a turn ended
 turn-cancelled = Stopped.

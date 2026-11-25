@@ -18,10 +18,12 @@ import { getString, type MessageId } from "../../utils/locale";
 import { h, iconButton } from "../ui/dom";
 import { createAnswer } from "./answer";
 import { createComposer } from "./composer";
+import { createContextView } from "./context";
 import { createThinkingState } from "./thinking";
 
 export interface ChatView {
   element: HTMLElement;
+  setVisible(visible: boolean): void;
   destroy(): void;
 }
 
@@ -39,6 +41,7 @@ export function createChatView(
   doc: Document,
   chat: ChatController,
   onClose?: () => void,
+  context = createContextView(doc),
 ): ChatView {
   const agentName = h(doc, "span", { class: "sap-chat-agent" });
   const statusLabel = h(doc, "span");
@@ -76,7 +79,12 @@ export function createChatView(
     Zotero.Utilities.Internal.openPreferences(`${config.addonRef}-prefs`);
   };
   const composer = createComposer(doc, {
-    send: (text) => chat.send(text),
+    async send(text) {
+      const snapshot = context.snapshot();
+      const sent = await chat.send(text, snapshot);
+      if (sent) context.consume(snapshot.selections);
+      return sent;
+    },
     stop: () => chat.stop(),
     selectAgent: (id) => chat.selectAgent(id),
     selectModel: (id) => chat.selectModel(id),
@@ -92,11 +100,10 @@ export function createChatView(
     Power,
     () => void chat.disconnect(),
   );
-  const newConversation = button(
-    "action-new-conversation",
-    SquarePen,
-    () => void chat.newConversation(),
-  );
+  const newConversation = button("action-new-conversation", SquarePen, () => {
+    context.clear();
+    void chat.newConversation();
+  });
   const root = h(
     doc,
     "div",
@@ -120,6 +127,7 @@ export function createChatView(
     ),
     notice,
     transcript,
+    context.element,
     composer.element,
   );
 
@@ -155,10 +163,12 @@ export function createChatView(
       },
     });
     const note = h(doc, "div", { class: "sap-msg-note" });
+    const source = h(doc, "div", { class: "sap-turn-source", hidden: true });
     const node = h(
       doc,
       "article",
       { class: "sap-msg sap-msg-assistant" },
+      source,
       thinking.element,
       answer.element,
       note,
@@ -171,6 +181,9 @@ export function createChatView(
       render(current, state, last) {
         if (lastMessage !== current) {
           lastMessage = current;
+          const title = current.context?.paper?.title;
+          source.hidden = !title;
+          source.textContent = title ?? "";
           thinking.render(current);
           answerText = current.blocks
             .flatMap((block) => (block.type === "text" ? [block.text] : []))
@@ -182,6 +195,7 @@ export function createChatView(
         answer.element.hidden = !answerText;
         answer.render({
           text: answerText,
+          pdfUrl: current.context?.paper?.attachment?.uri,
           streaming: !current.stopReason,
           stopping: state.execution === "cancelling",
           regenerate:
@@ -244,7 +258,7 @@ export function createChatView(
     disconnect.hidden =
       state.connection !== "connected" && state.connection !== "connecting";
     newConversation.hidden = state.connection !== "connected";
-    newConversation.disabled = state.execution !== "idle";
+    newConversation.disabled = state.changingModel;
     const showRestore = state.canRestore && state.connection !== "connecting";
     notice.hidden = !state.error && !showRestore;
     noticeText.hidden = !state.error;
@@ -259,9 +273,11 @@ export function createChatView(
 
   return {
     element: root,
+    setVisible: context.setVisible,
     destroy() {
       unsubscribe();
       composer.destroy();
+      context.destroy();
       for (const item of mounted.values())
         if (item.role === "assistant") item.destroy();
       mounted.clear();

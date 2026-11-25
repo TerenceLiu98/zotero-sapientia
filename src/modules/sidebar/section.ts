@@ -2,6 +2,7 @@ import { config } from "../../../package.json";
 import type { ChatController } from "../../chat/controller";
 import { getString } from "../../utils/locale";
 import { h } from "../ui/dom";
+import { createContextView } from "./context";
 import { CHAT_STYLES } from "./styles";
 import { createChatView, type ChatView } from "./view";
 
@@ -112,27 +113,33 @@ export function mountChatSidebar(
   );
 
   let view: ChatView | undefined;
+  const context = createContextView(doc, () => {
+    if (panel.hidden) setOpen(true);
+  });
   const setOpen = (open: boolean) => {
     panel.hidden = !open;
     button.setAttribute("aria-pressed", String(open));
     if (!open) {
+      view?.setVisible(false);
       button.removeAttribute("open");
       button.focus();
       return;
     }
     button.setAttribute("open", "true");
     if (!view) {
-      view = createChatView(doc, chat, () => setOpen(false));
+      view = createChatView(doc, chat, () => setOpen(false), context);
       content.append(view.element);
-      void chat.warm();
     }
+    view.setVisible(true);
+    void chat.warm();
     view.element.querySelector("textarea")?.focus();
   };
 
   button.addEventListener("command", () => setOpen(panel.hidden));
 
   return () => {
-    view?.destroy();
+    if (view) view.destroy();
+    else context.destroy();
     button.remove();
     panel.remove();
   };

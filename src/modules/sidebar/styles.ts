@@ -93,6 +93,24 @@ export const CHAT_STYLES =
 }
 .sap-msg-assistant { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; }
 .sap-msg-note { color: var(--fill-secondary); font-size: 12px; }
+.sap-chat-context { flex: none; min-width: 0; padding: 0 14px 6px; }
+.sap-context-paper, .sap-context-quote, .sap-context-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.sap-context-paper svg, .sap-context-quote svg { flex: none; }
+.sap-context-title, .sap-turn-source { overflow-wrap: anywhere; }
+.sap-context-title { font-weight: 600; }
+.sap-context-materials { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.sap-context-materials, .sap-context-notice, .sap-turn-source { color: var(--fill-secondary); font-size: 11px; }
+.sap-context-add { margin-block: 3px; }
+.sap-context-attached { max-height: 112px; overflow: auto; }
+.sap-context-quote { margin-block: 4px; padding: 3px 4px 3px 7px; border-radius: 6px; background: var(--fill-quinary); }
+.sap-context-quote-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sap-context-quote-text strong { margin-inline-end: 6px; }
+.sap-context-notice { margin: 3px 0 0; }
 
 .sap-thinking { min-width: 0; color: var(--fill-secondary); font-size: 13px; }
 .sap-thinking-header {
