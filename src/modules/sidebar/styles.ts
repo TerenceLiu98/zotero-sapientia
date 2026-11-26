@@ -70,6 +70,26 @@ export const CHAT_STYLES =
   overflow-wrap: anywhere;
 }
 .sap-chat-notice-actions { margin-top: 6px; }
+.sap-agent-permission {
+  align-self: center;
+  box-sizing: border-box;
+  flex: none;
+  width: calc(100% - 24px);
+  max-width: 680px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--sap-border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.sap-agent-permission-details {
+  max-height: 100px;
+  overflow: auto;
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  color: var(--fill-secondary);
+}
+.sap-agent-permission-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
 .sap-chat-transcript {
   display: flex;
   flex: 1;

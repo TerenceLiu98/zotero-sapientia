@@ -20,8 +20,9 @@ export function mountChatSidebar(
 ): (() => void) | undefined {
   const doc = window.document;
   const row = doc.getElementById("tabs-deck")?.parentElement;
-  const toolbar = doc.getElementById("zotero-tabs-toolbar");
-  if (!row || !toolbar) {
+  const librarySidenav = doc.getElementById("zotero-view-item-sidenav");
+  const contextSidenav = doc.getElementById("zotero-context-pane-sidenav");
+  if (!row || !librarySidenav || !contextSidenav) {
     return;
   }
 
@@ -47,7 +48,13 @@ export function mountChatSidebar(
       {},
       CHAT_STYLES,
       `
-      #${CHAT_TOGGLE_ID} .toolbarbutton-icon { width: 20px; height: 20px; }
+      #${CHAT_TOGGLE_ID} {
+        background-image: url("chrome://${config.addonRef}/content/icons/sapientia.svg");
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: 16px 16px;
+      }
+      #${CHAT_TOGGLE_ID}[aria-pressed="true"] { background-color: var(--fill-quarternary); }
       #${CHAT_PANE_ID} .sap-chat-resize:is(:hover, :focus-visible) { background: var(--fill-quarternary); }
     `,
     ),
@@ -105,16 +112,29 @@ export function mountChatSidebar(
 
   const button = doc.createXULElement("toolbarbutton") as XULElement;
   button.id = CHAT_TOGGLE_ID;
-  button.className = "zotero-tb-button";
+  button.className = "btn";
+  button.setAttribute("tabindex", "0");
   button.setAttribute("aria-label", label);
   button.setAttribute("aria-controls", CHAT_PANE_ID);
   button.setAttribute("aria-pressed", "false");
   button.setAttribute("tooltiptext", label);
-  button.style.listStyleImage = `url("chrome://${config.addonRef}/content/icons/sapientia.svg")`;
-  toolbar.insertBefore(
-    button,
-    doc.getElementById("zotero-tb-tabs-menu")?.nextSibling ?? null,
+  const placeButton = () => {
+    const sidenav =
+      window.Zotero_Tabs.selectedType === "library"
+        ? librarySidenav
+        : contextSidenav;
+    if (button.parentElement !== sidenav) sidenav.append(button);
+  };
+  const tabObserver = Zotero.Notifier.registerObserver(
+    { notify: placeButton },
+    ["tab"],
+    config.addonRef,
   );
+  // Zotero rebuilds the rail's children when moving it between native layouts.
+  const railObserver = new window.MutationObserver(placeButton);
+  railObserver.observe(librarySidenav, { childList: true });
+  railObserver.observe(contextSidenav, { childList: true });
+  placeButton();
 
   let view: ChatView | undefined;
   const context = createContextView(doc, () => {
@@ -126,11 +146,9 @@ export function mountChatSidebar(
     button.setAttribute("aria-pressed", String(open));
     if (!open) {
       view?.setVisible(false);
-      button.removeAttribute("open");
       button.focus();
       return;
     }
-    button.setAttribute("open", "true");
     if (!view) {
       view = createChatView(doc, chat, () => setOpen(false), context);
       content.append(view.element);
@@ -143,6 +161,8 @@ export function mountChatSidebar(
   button.addEventListener("command", () => setOpen(panel.hidden));
 
   return () => {
+    railObserver.disconnect();
+    Zotero.Notifier.unregisterObserver(tabObserver);
     if (view) view.destroy();
     else context.destroy();
     button.remove();

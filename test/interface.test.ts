@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { discoverAgentProfiles } from "../src/agents/discovery";
 import {
   saveProfiles,
   setDefaultProfileId,
@@ -320,8 +321,18 @@ describe("the settings pane", function () {
 
   const doc = () => window.document;
   const rows = () => [
-    ...doc().querySelectorAll("#sapientia-prefs .sap-prefs-row"),
+    ...doc().querySelectorAll<HTMLElement>("#sapientia-prefs .sap-prefs-entry"),
   ];
+  const savedRows = () =>
+    rows().filter((row) => !row.dataset.profile?.startsWith("detected-"));
+  const row = (id: string) =>
+    doc().querySelector<HTMLElement>(
+      `#sapientia-prefs [data-profile="${window.CSS.escape(id)}"]`,
+    )!;
+  const defaultRow = () =>
+    doc()
+      .querySelector("#sapientia-prefs .sap-prefs-default-tag")
+      ?.closest(".sap-prefs-entry");
 
   /** The pane's buttons are found by what they do, because their labels are localized. */
   const action = (name: string) => {
@@ -341,6 +352,11 @@ describe("the settings pane", function () {
     await reset();
     window = Zotero.Utilities.Internal.openPreferences(PREFS_PANE_ID)!;
     await until(() => doc().querySelector("#sapientia-prefs .sap-prefs"));
+    doc()
+      .querySelector<HTMLButtonElement>(
+        '#sapientia-prefs [data-action="cancel"]',
+      )
+      ?.click();
   });
 
   it("lists the saved agents and shows which one is the default", async () => {
@@ -351,10 +367,10 @@ describe("the settings pane", function () {
     ]);
     setDefaultProfileId("second");
 
-    await until(() => rows().length === 2);
+    await until(() => savedRows().length === 2);
 
     assert.deepEqual(
-      rows().map(
+      savedRows().map(
         (row) => row.querySelector(".sap-prefs-row-name")!.textContent,
       ),
       ["First Agent", "Second Agent"],
@@ -364,10 +380,7 @@ describe("the settings pane", function () {
       doc().querySelector("#sapientia-prefs")!.textContent!,
       SECRET,
     );
-    assert.equal(
-      doc().querySelector<HTMLInputElement>("#sapientia-default-agent")!.value,
-      "Second Agent",
-    );
+    assert.equal(defaultRow(), row("second"));
   });
 
   it("adds an agent and keeps its arguments and variable values masked", async () => {
@@ -406,9 +419,11 @@ describe("the settings pane", function () {
       saved.id,
       "the first agent becomes the default",
     );
-    await until(() => rows().length === 1);
+    await until(() => savedRows().length === 1);
 
-    action("edit").click();
+    (
+      row(saved.id).querySelector("[data-action=edit]") as HTMLButtonElement
+    ).click();
     assert.equal(field("args").type, "password");
     assert.include(field("args").value, SECRET);
   });
@@ -435,78 +450,83 @@ describe("the settings pane", function () {
     assert.deepEqual(loadProfiles(), []);
   });
 
-  it("selects the default agent with the keyboard", async () => {
-    const agent = await makeAgent("settings keyboard");
+  it("sets the default from an agent row and keeps Add below the list", async () => {
+    const agent = await makeAgent("settings default");
     saveProfiles([
       agent.profile([], { id: "first", name: "First Agent" }),
       agent.profile([], { id: "second", name: "Second Agent" }),
     ]);
     setDefaultProfileId("first");
-    await until(() => rows().length === 2);
-
-    const input = doc().querySelector<HTMLInputElement>(
-      "#sapientia-default-agent",
-    )!;
-    input.dispatchEvent(new Event("focus"));
-    assert.equal(input.getAttribute("aria-expanded"), "true", "the list opens");
-    const popup = doc().querySelector(".sap-combobox-list")!;
-    assert.equal(window.getComputedStyle(popup)!.scrollbarWidth, "none");
+    await until(() => savedRows().length === 2);
+    assert.equal(defaultRow(), row("first"));
     const settingsContent = doc().getElementById("prefs-content")!;
     assert.equal(
       window.getComputedStyle(settingsContent)!.scrollbarWidth,
       "none",
     );
-    const choices = doc().querySelectorAll("#sapientia-prefs [role=option]");
-    assert.deepEqual(
-      [
-        choices[0]?.getAttribute("data-value"),
-        choices[1]?.getAttribute("data-value"),
-      ],
-      ["first", "second"],
+    const makeDefault = row("second").querySelector(
+      "[data-action=make-default]",
+    ) as HTMLButtonElement;
+    assert.isAtLeast(makeDefault.tabIndex, 0);
+    makeDefault.click();
+    assert.equal(getDefaultProfileId(), "second");
+    assert.equal(defaultRow(), row("second"));
+    assert.isAtLeast(
+      action("add").getBoundingClientRect().top,
+      row("second").getBoundingClientRect().bottom,
     );
+  });
 
-    press(window, input, "ArrowDown");
-    press(window, input, "Enter");
+  it("edits an auto-detected agent in place and can reset its configuration", async function () {
+    const [detected] = await discoverAgentProfiles();
+    if (!detected) return this.skip();
+    const agent = await makeAgent("settings custom");
+    saveProfiles([agent.profile([], { id: "custom", name: "Custom Agent" })]);
+    setDefaultProfileId(detected.id);
+    await until(() => row(detected.id));
+    assert.equal(rows()[0]?.dataset.profile, detected.id);
+    assert.equal(defaultRow(), row(detected.id));
 
+    const edit = () =>
+      (
+        row(detected.id).querySelector(
+          "[data-action=edit]",
+        ) as HTMLButtonElement
+      ).click();
+    edit();
+    assert.equal(field("command").value, detected.command);
+    assert.equal(field("name").closest("[data-profile]"), row(detected.id));
+    typeInto(field("name"), "Configured Agent");
+    action("save").click();
     assert.equal(
-      getDefaultProfileId(),
-      "second",
-      "Enter picks the row the arrow moved to",
+      loadProfiles().find(({ id }) => id === detected.id)?.name,
+      "Configured Agent",
     );
-    assert.equal(input.value, "Second Agent");
     assert.equal(
-      input.getAttribute("aria-expanded"),
-      "false",
-      "the list closes after picking",
-    );
-    input.click();
-    assert.equal(
-      doc()
-        .querySelector("#sapientia-prefs [role=option][aria-selected=true]")!
-        .getAttribute("data-value"),
-      "second",
-    );
-
-    typeInto(input, "first");
-    assert.lengthOf(
-      doc().querySelectorAll("#sapientia-prefs [role=option]"),
+      rows().filter(({ dataset }) => dataset.profile === detected.id).length,
       1,
     );
-    press(window, input, "Enter");
-    assert.equal(getDefaultProfileId(), "first");
+    assert.equal(defaultRow(), row(detected.id));
+
+    edit();
+    action("remove").click();
+    assert.isFalse(loadProfiles().some(({ id }) => id === detected.id));
+    assert.equal(
+      row(detected.id).querySelector(".sap-prefs-row-name")?.textContent,
+      detected.name,
+    );
+    assert.equal(defaultRow(), row(detected.id));
   });
 
   it("removes an agent", async () => {
     const agent = await makeAgent("settings remove");
     saveProfiles([agent.profile([], { name: "Doomed Agent" })]);
     setDefaultProfileId("fixture");
-    await until(() => rows().length === 1);
-
-    doc()
-      .querySelector<HTMLButtonElement>(
-        "#sapientia-prefs [data-action=remove]",
-      )!
-      .click();
+    await until(() => savedRows().length === 1);
+    (
+      row("fixture").querySelector("[data-action=edit]") as HTMLButtonElement
+    ).click();
+    action("remove").click();
 
     assert.deepEqual(loadProfiles(), []);
     assert.equal(getDefaultProfileId(), "");
@@ -629,7 +649,7 @@ describe("the docked chat panel", function () {
     }
   });
 
-  it("opens from the tab toolbar and preserves the conversation when reopened", async function () {
+  it("opens from the item side navigation and preserves the conversation when reopened", async function () {
     await reset();
     const window = mainWindow();
     const doc = window.document;
@@ -642,11 +662,15 @@ describe("the docked chat panel", function () {
     );
     assert.equal(
       toggle.parentElement,
-      doc.getElementById("zotero-tabs-toolbar"),
+      doc.getElementById("zotero-view-item-sidenav"),
     );
+    const toggleStyle = window.getComputedStyle(toggle)!;
+    assert.include(toggleStyle.backgroundImage, "sapientia.svg");
+    assert.equal(toggleStyle.backgroundSize, "16px 16px");
+    assert.equal(toggleStyle.listStyleImage, "none");
     assert.isTrue(pane.hidden, "the sidebar starts closed");
     const agent = await makeAgent("docked chat");
-    use(agent.profile(["--models"]));
+    use(agent.profile(["--models", "--reasoning"]));
     togglePane();
     assert.isFalse(pane.hidden);
     assert.equal(toggle.getAttribute("aria-pressed"), "true");
@@ -688,6 +712,8 @@ describe("the docked chat panel", function () {
     const list = pane.querySelector<HTMLElement>(".sap-composer-picker-list")!;
     assert.isTrue(list.matches(":popover-open"));
     assert.equal(window.getComputedStyle(list)!.scrollbarWidth, "none");
+    assert.isAtLeast(list.getBoundingClientRect().left, 0);
+    assert.isAtMost(list.getBoundingClientRect().right, window.innerWidth);
     assert.isAtMost(
       list.getBoundingClientRect().bottom,
       picker.getBoundingClientRect().top,
@@ -698,13 +724,53 @@ describe("the docked chat panel", function () {
     const optionLabel = careful.querySelector<HTMLElement>(
       ".sap-composer-picker-option-label",
     )!;
-    assert.isAbove(optionLabel.clientHeight, 20, "the model option wraps");
+    assert.equal(
+      optionLabel.textContent,
+      "Fixture Careful Research Model with Extended Reasoning",
+    );
     assert.isAtMost(optionLabel.scrollWidth, optionLabel.clientWidth);
-    careful.click();
+    const search = list.querySelector<HTMLInputElement>("input")!;
+    assert.equal(doc.activeElement, search);
+    const agents = list.querySelector<HTMLElement>(
+      ".sap-composer-picker-agents",
+    )!;
+    const models = list.querySelector<HTMLElement>(
+      ".sap-composer-picker-models",
+    )!;
+    const levels = list.querySelector<HTMLElement>(
+      ".sap-composer-picker-levels",
+    )!;
+    const reasoningTitle = list.querySelector(
+      ".sap-composer-picker-reasoning-title",
+    )!;
+    const maxHeight = list.style.maxHeight;
+    list.style.maxHeight = "100px";
+    const agentTop = agents.getBoundingClientRect().top;
+    const searchTop = search.getBoundingClientRect().top;
+    const reasoningTop = reasoningTitle.getBoundingClientRect().top;
+    assert.isAbove(models.scrollHeight, models.clientHeight);
+    assert.isAbove(levels.scrollHeight, levels.clientHeight);
+    press(window, search, "ArrowDown");
+    assert.isAbove(models.scrollTop, 0);
+    assert.equal(levels.scrollTop, 0);
+    const modelScroll = models.scrollTop;
+    levels.scrollTop = levels.scrollHeight;
+    assert.isAbove(levels.scrollTop, 0);
+    assert.equal(models.scrollTop, modelScroll);
+    assert.equal(agents.getBoundingClientRect().top, agentTop);
+    assert.equal(search.getBoundingClientRect().top, searchTop);
+    assert.equal(reasoningTitle.getBoundingClientRect().top, reasoningTop);
+    assert.equal(list.scrollTop, 0);
+    list.style.maxHeight = maxHeight;
+    typeInto(search, "no-such-model");
+    assert.isNull(list.querySelector("[data-model-id]"));
+    typeInto(search, "careful");
+    assert.isNull(list.querySelector('[data-model-id="fast"]'));
+    press(window, search, "Enter");
     await until(() => picker.textContent?.includes("Fixture Careful"));
     assert.equal(
       label.textContent,
-      "Fixture Careful Research Model with Extended Reasoning",
+      "Fixture Careful Research Model with Extended Reasoning · Low",
     );
     assert.isAbove(label.clientHeight, 20, "the selected model wraps");
     assert.isAtMost(
@@ -716,6 +782,15 @@ describe("the docked chat panel", function () {
       picker.getBoundingClientRect().right,
       send.getBoundingClientRect().left,
     );
+    const high = () =>
+      list.querySelector<HTMLButtonElement>('[data-reasoning-id="high"]')!;
+    assert.isTrue(list.matches(":popover-open"));
+    high().click();
+    await until(() => label.textContent?.endsWith(" · High"));
+    assert.equal(high().getAttribute("aria-pressed"), "true");
+    press(window, search, "Escape");
+    assert.isFalse(list.matches(":popover-open"));
+    assert.equal(doc.activeElement, picker);
     assert.equal(count(await agent.received(), "session/new"), 1);
     await plugin().chat.send("echo:The key result is self-attention.");
     const requests = await agent.received();
@@ -724,6 +799,7 @@ describe("the docked chat panel", function () {
       [
         "initialize",
         "session/new",
+        "session/set_config_option",
         "session/set_config_option",
         "session/prompt",
       ],
@@ -744,13 +820,34 @@ describe("the docked chat panel", function () {
     );
     const second = await makeAgent("second docked agent");
     saveProfiles([
-      agent.profile(["--models"]),
-      second.profile(["--models"], { id: "second", name: "Second Agent" }),
+      agent.profile(["--models", "--reasoning"]),
+      second.profile(["--models", "--model-prefix", "opencode/"], {
+        id: "second",
+        name: "OpenCode",
+      }),
     ]);
     picker.click();
     list.querySelector<HTMLElement>('[data-agent-id="second"]')!.click();
-    await until(() => picker.textContent?.includes("Fixture Fast"));
-    assert.equal(plugin().chat.getState().agentName, "Second Agent");
+    await until(() => label.textContent === "Fixture Fast");
+    assert.equal(plugin().chat.getState().agentName, "OpenCode");
+    const providerImage = picker.querySelector<HTMLImageElement>(
+      "img.sap-composer-provider-image",
+    )!;
+    assert.exists(providerImage);
+    await until(() => providerImage.complete && providerImage.naturalWidth > 0);
+    assert.match(providerImage.currentSrc, /opencode-on-(?:dark|light)\.svg$/);
+    assert.equal(
+      list.querySelector(
+        '[data-model-id="fast"] .sap-composer-picker-option-label',
+      )?.textContent,
+      "Fixture Fast",
+    );
+    typeInto(search, "opencode/fixture fast");
+    assert.isNotNull(list.querySelector('[data-model-id="fast"]'));
+    assert.isNull(list.querySelector('[data-model-id="careful"]'));
+    assert.isTrue(
+      list.querySelector<HTMLElement>(".sap-composer-picker-reasoning")!.hidden,
+    );
     assert.equal(count(await second.received(), "session/new"), 1);
     assert.equal(count(await second.received(), "session/prompt"), 0);
     assert.equal(pane.querySelector("textarea")!.value, "Follow-up draft");

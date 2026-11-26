@@ -5,7 +5,6 @@ import type { LaunchSpec } from "../agents/launch";
 import { withTimeout } from "../utils/async";
 import { UserError } from "../utils/errors";
 import { redactor } from "../utils/log";
-import { modelsFromConfig, type SessionModels } from "./models";
 import { launchProcess, type AgentProcess } from "./process";
 
 const CLIENT_NAME = "zotero-sapientia";
@@ -31,6 +30,9 @@ export type AgentEvent =
   | { type: "transport-closed"; error: UserError };
 
 type Listener = (event: AgentEvent) => void;
+type PermissionHandler = (
+  request: acp.RequestPermissionRequest,
+) => Promise<acp.RequestPermissionResponse>;
 
 /**
  * One Agent Client Protocol connection to a stdio agent, from the handshake
@@ -41,9 +43,13 @@ export class AgentConnection {
   static async open(
     spec: LaunchSpec,
     signal?: AbortSignal,
+    requestPermission?: PermissionHandler,
   ): Promise<AgentConnection> {
     signal?.throwIfAborted();
-    const connection = new AgentConnection(await launchProcess(spec));
+    const connection = new AgentConnection(
+      await launchProcess(spec),
+      requestPermission,
+    );
     const abort = () => void connection.close().catch(() => {});
     signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -72,12 +78,17 @@ export class AgentConnection {
   private exitCode: number | null = null;
   private closing: Promise<void> | null = null;
 
-  private constructor(private readonly process: AgentProcess) {
+  private constructor(
+    private readonly process: AgentProcess,
+    requestPermission?: PermissionHandler,
+  ) {
     this.connection = acp
       .client({ name: CLIENT_NAME })
-      .onRequest(acp.methods.client.session.requestPermission, async () => ({
-        outcome: { outcome: "cancelled" },
-      }))
+      .onRequest(
+        acp.methods.client.session.requestPermission,
+        ({ params }) =>
+          requestPermission?.(params) ?? { outcome: { outcome: "cancelled" } },
+      )
       .onNotification(acp.methods.client.session.update, ({ params }) =>
         this.emit({ type: "update", params }),
       )
@@ -150,19 +161,19 @@ export class AgentConnection {
     }
   }
 
-  async setModel(
+  setConfigOption(
     sessionId: string,
     configId: string,
-    modelId: string,
-  ): Promise<SessionModels | null> {
-    const response = await this.send(() =>
+    value: string,
+  ): Promise<acp.SetSessionConfigOptionResponse> {
+    return this.send(() =>
       withTimeout(
         this.connection.agent.request(
           acp.methods.agent.session.setConfigOption,
           {
             sessionId,
             configId,
-            value: modelId,
+            value,
           },
         ),
         REQUEST_TIMEOUT_MS,
@@ -172,7 +183,6 @@ export class AgentConnection {
           }),
       ),
     );
-    return modelsFromConfig(response.configOptions);
   }
 
   /** Sends a prompt and resolves once the agent's turn has ended. */

@@ -75,6 +75,46 @@ export function createChatView(
   );
   const transcript = h(doc, "div", { class: "sap-chat-transcript" });
   const writeReview = createWriteReview(doc, chat.writes);
+  const permissionTitle = h(doc, "strong");
+  const permissionDetails = h(doc, "pre", {
+    class: "sap-agent-permission-details",
+  });
+  const permissionRequest = h(
+    doc,
+    "section",
+    {
+      class: "sap-agent-permission",
+      "aria-label": getString("agent-permission-request"),
+      hidden: true,
+    },
+    permissionTitle,
+    permissionDetails,
+    h(
+      doc,
+      "div",
+      { class: "sap-agent-permission-actions" },
+      h(
+        doc,
+        "button",
+        {
+          class: "sap-chat-button",
+          type: "button",
+          click: () => chat.getState().agentPermission?.decide(false),
+        },
+        getString("write-deny"),
+      ),
+      h(
+        doc,
+        "button",
+        {
+          class: "sap-chat-button sap-agent-permission-allow",
+          type: "button",
+          click: () => chat.getState().agentPermission?.decide(true),
+        },
+        getString("agent-permission-allow-once"),
+      ),
+    ),
+  );
 
   function button(label: MessageId, glyph: IconNode, action: () => void) {
     return iconButton(doc, getString(label), glyph, action);
@@ -94,6 +134,7 @@ export function createChatView(
       stop: () => chat.stop(),
       selectAgent: (id) => chat.selectAgent(id),
       selectModel: (id) => chat.selectModel(id),
+      selectReasoning: (id) => chat.selectReasoning(id),
       cancelWrites: () => chat.writes.cancelActive(),
     },
     context.attachments,
@@ -143,6 +184,7 @@ export function createChatView(
     writeReview.historyPanel,
     transcript,
     context.element,
+    permissionRequest,
     writeReview.element,
     composer.element,
     answerSelection.element,
@@ -315,6 +357,12 @@ export function createChatView(
     noticeText.hidden = !state.error;
     noticeText.textContent = state.error ? formatError(state.error) : "";
     restore.hidden = !showRestore;
+    const permission = state.agentPermission;
+    permissionRequest.hidden = !permission;
+    permissionTitle.textContent =
+      permission?.title || getString("agent-permission-request");
+    permissionDetails.textContent = permission?.details ?? "";
+    permissionDetails.hidden = !permission?.details;
     renderTranscript(state);
     composer.render(state);
   }
@@ -327,7 +375,7 @@ export function createChatView(
     setVisible(visible) {
       context.setVisible(visible);
       if (!visible) {
-        composer.closePermissions();
+        composer.closeMenus();
         answerSelection.hide();
       }
     },

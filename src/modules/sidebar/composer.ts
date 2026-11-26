@@ -2,7 +2,11 @@ import { ArrowUp, Square } from "lucide";
 import { config } from "../../../package.json";
 import { discoverAgentProfiles } from "../../agents/discovery";
 import type { AgentProfile } from "../../agents/profile";
-import { getDefaultProfile, loadProfiles } from "../../agents/store";
+import {
+  getDefaultProfile,
+  loadProfiles,
+  mergeProfiles,
+} from "../../agents/store";
 import type { ChatState } from "../../chat/controller";
 import { getString } from "../../utils/locale";
 import { h, iconButton, setIconButton } from "../ui/dom";
@@ -14,6 +18,7 @@ interface ComposerActions {
   stop(): Promise<void>;
   selectAgent(id: string): Promise<void>;
   selectModel(id: string): Promise<void>;
+  selectReasoning(id: string): Promise<void>;
   cancelWrites(): void;
 }
 
@@ -66,7 +71,7 @@ export function createComposer(
 
   let state: ChatState | undefined;
   let submitting = false;
-  let switching = false;
+  let switching: "agent" | "model" | "reasoning" | null = null;
   let discoveredProfiles: AgentProfile[] = [];
   let profiles: AgentProfile[] = [];
   let disposed = false;
@@ -81,7 +86,7 @@ export function createComposer(
       state?.execution === "executing" || state?.execution === "cancelling";
     const pending =
       submitting ||
-      switching ||
+      Boolean(switching) ||
       state?.changingModel ||
       state?.connection === "connecting";
     setIconButton(
@@ -97,15 +102,16 @@ export function createComposer(
     picker.render({
       agents: profiles,
       agent,
-      models: switching ? null : state?.models,
-      loading: switching || state?.connection === "connecting",
-      disabled:
-        running || submitting || switching || Boolean(state?.changingModel),
+      models: switching === "agent" ? null : state?.models,
+      reasoning: switching === "agent" ? null : state?.reasoning,
+      loading: switching === "agent" || state?.connection === "connecting",
+      pending: Boolean(switching || state?.changingModel),
+      disabled: running || submitting,
     });
   }
 
   function renderProfiles(): void {
-    profiles = [...loadProfiles(), ...discoveredProfiles];
+    profiles = mergeProfiles(loadProfiles(), discoveredProfiles);
     renderControls();
   }
 
@@ -130,17 +136,18 @@ export function createComposer(
   }
 
   async function switchSelection(
-    kind: "agent" | "model",
+    kind: "agent" | "model" | "reasoning",
     id: string,
   ): Promise<void> {
     if (switching) return;
-    switching = true;
+    switching = kind;
     renderControls();
     try {
       if (kind === "agent") await actions.selectAgent(id);
-      else await actions.selectModel(id);
+      else if (kind === "model") await actions.selectModel(id);
+      else await actions.selectReasoning(id);
     } finally {
-      switching = false;
+      switching = null;
       renderProfiles();
     }
   }
@@ -185,7 +192,10 @@ export function createComposer(
   return {
     element,
     input,
-    closePermissions: permissions.close,
+    closeMenus() {
+      permissions.close();
+      picker.close();
+    },
     render(nextState: ChatState) {
       state = nextState;
       renderControls();

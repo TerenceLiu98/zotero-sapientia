@@ -26,6 +26,17 @@ export function saveProfiles(profiles: AgentProfile[]): void {
   Zotero.Prefs.set(`${PREFS}.profiles`, JSON.stringify(profiles), true);
 }
 
+export function mergeProfiles(
+  saved: readonly AgentProfile[],
+  detected: readonly AgentProfile[],
+): AgentProfile[] {
+  const profiles = new Map(saved.map((profile) => [profile.id, profile]));
+  for (const profile of detected) {
+    if (!profiles.has(profile.id)) profiles.set(profile.id, profile);
+  }
+  return [...profiles.values()];
+}
+
 /** The agent a new conversation talks to. */
 export function getDefaultProfileId(): string {
   return (Zotero.Prefs.get(`${PREFS}.defaultProfileId`, true) as string) ?? "";

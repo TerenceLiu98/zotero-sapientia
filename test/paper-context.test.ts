@@ -520,6 +520,10 @@ describe("paper context in the Zotero reader", function () {
     }
     try {
       const readerA = await open(a);
+      assert.equal(
+        toggle.parentElement,
+        doc.getElementById("zotero-context-pane-sidenav"),
+      );
       stage = "add the first selection and connect";
       attachSelection(readerA, "alpha page one", doc);
       assert.isFalse(pane.hidden);

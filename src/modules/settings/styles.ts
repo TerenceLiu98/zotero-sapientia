@@ -27,50 +27,52 @@ export const SETTINGS_STYLES = `
   display: flex;
   flex-direction: column;
   border: 1px solid var(--color-border);
-  border-radius: var(--sap-control-radius);
+  border-radius: 8px;
+  background: var(--material-button);
 }
+.sap-prefs-entry + .sap-prefs-entry { border-top: 1px solid var(--color-border); }
 .sap-prefs-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 32px;
-  padding: 4px;
-}
-.sap-prefs-row + .sap-prefs-row {
-  border-top: 1px solid var(--color-border);
-}
-.sap-prefs button.sap-prefs-row-edit {
-  display: flex;
-  flex: 1;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto var(--sap-control-size);
   align-items: center;
   gap: 8px;
-  min-width: 0;
-  margin: 0;
-  padding: 4px 6px;
-  border: 0;
-  border-radius: var(--sap-control-radius);
-  background: transparent;
-  color: var(--fill-primary);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
+  min-height: 53px;
+  padding: 7px 10px;
 }
-.sap-prefs button.sap-prefs-row-edit:hover {
-  background: var(--sap-hover);
+.sap-prefs-agent-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  color: var(--fill-secondary);
+}
+.sap-prefs-agent-icon img { display: block; object-fit: contain; }
+.sap-prefs-row-label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 .sap-prefs-row-name {
-  flex: none;
-  max-width: 45%;
   overflow-wrap: anywhere;
-  font-weight: 500;
+  font-weight: 600;
 }
 .sap-prefs-row-command {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--fill-secondary);
-  font-family: var(--monospace-font);
-  font-size: 12px;
+  font-size: 11px;
+}
+.sap-prefs-default-tag {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--fill-quarternary);
+  color: var(--fill-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .sap-prefs-empty {
   padding: 8px 10px;
@@ -106,6 +108,12 @@ export const SETTINGS_STYLES = `
   border-color: transparent;
   background: transparent;
 }
+.sap-prefs-button[data-action="add"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
 .sap-prefs-button-icon {
   display: grid;
   flex: none;
@@ -123,6 +131,7 @@ export const SETTINGS_STYLES = `
   background: var(--sap-hover);
   color: var(--fill-primary);
 }
+.sap-prefs-button-icon[aria-expanded="true"] { background: var(--sap-hover); }
 
 .sap-prefs-editor {
   display: flex;
@@ -132,6 +141,11 @@ export const SETTINGS_STYLES = `
   padding: 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--sap-menu-radius);
+}
+.sap-prefs-entry > .sap-prefs-editor {
+  margin-top: 0;
+  border-width: 1px 0 0;
+  border-radius: 0;
 }
 .sap-prefs-field {
   display: grid;
@@ -199,4 +213,5 @@ export const SETTINGS_STYLES = `
   flex-wrap: wrap;
   gap: 8px;
 }
+.sap-prefs-discard { margin-inline-start: auto; }
 `;

@@ -6,7 +6,9 @@ Zotero 10 plugin for chatting with your own Agent Client Protocol (ACP) agent in
 
 Run `npm ci` and `npm run build` with Node.js 22 or newer. Install the `.xpi` from `.scaffold/build` through Zotero's **Tools → Plugins** menu.
 
-Open the sidebar from the **Sapientia** toolbar button. The composer lists the Claude Code, Codex, and OpenCode installations it finds on this machine. Claude Code and Codex use an ACP adapter, which may be downloaded by `npx` on first use when no adapter is installed. OpenCode uses its built-in ACP command.
+Open the sidebar from the **Sapientia** icon in Zotero's item navigation on the right. The composer lists local installations of Claude Code, Codex, OpenCode, and Antigravity. Claude Code and Codex use an ACP adapter, which may be downloaded by `npx` on first use when no adapter is installed. OpenCode and Antigravity use their built-in ACP servers.
+
+For Antigravity, sign in to the CLI once with `agy acp --login`. Sapientia starts `agy acp --process-per-session` so it can pass Zotero's HTTP MCP tools to the session. See the [Antigravity ACP documentation](https://antigravity.google/docs/ide/extensions/acp/).
 
 For another ACP agent, open **Settings → Sapientia** and save an agent profile with its executable, arguments, working directory, and any required environment variables. Use an absolute executable path if needed.
 

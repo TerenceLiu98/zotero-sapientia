@@ -7,10 +7,11 @@ import {
   getDefaultProfile,
   getDefaultProfileId,
   loadProfiles,
+  mergeProfiles,
   setDefaultProfileId,
 } from "../agents/store";
 import { AgentConnection, type AgentEvent } from "../acp/connection";
-import { modelsFromConfig, type SessionModels } from "../acp/models";
+import { sessionChoicesFromConfig, type SessionChoices } from "../acp/models";
 import { READ_CURRENT_PAPER } from "../context/paper-tools";
 import { WriteApprovals } from "../writes/approval";
 import { writeAllowed, type WriteHandoff } from "../writes/request";
@@ -26,6 +27,12 @@ export type ConnectionState =
 
 export type ExecutionState = "idle" | "executing" | "cancelling";
 
+interface AgentPermission {
+  title: string;
+  details: string;
+  decide(allow: boolean): void;
+}
+
 export interface ChatState {
   /** The agent behind the current or last connection. */
   agentName: string | null;
@@ -36,8 +43,10 @@ export interface ChatState {
   messages: ChatMessage[];
   /** The interrupted conversation can be reopened. */
   canRestore: boolean;
-  models: SessionModels | null;
+  models: SessionChoices | null;
+  reasoning: SessionChoices | null;
   changingModel: boolean;
+  agentPermission: AgentPermission | null;
 }
 
 /** How long an agent gets to end a cancelled turn before it is considered stuck. */
@@ -65,7 +74,9 @@ export class ChatController {
     messages: [],
     canRestore: false,
     models: null,
+    reasoning: null,
     changingModel: false,
+    agentPermission: null,
   };
 
   private readonly listeners = new Set<Listener>();
@@ -140,6 +151,7 @@ export class ChatController {
         connection: "disconnected",
         canRestore: this.restorableSession !== null,
         models: null,
+        reasoning: null,
       });
     }
   }
@@ -166,39 +178,50 @@ export class ChatController {
         canRestore: false,
         error: null,
         models: null,
+        reasoning: null,
       });
     }
     await this.connect();
   }
 
-  async selectModel(id: string): Promise<void> {
-    const { models } = this.state;
+  selectModel(id: string): Promise<void> {
+    return this.selectSessionChoice(this.state.models, id);
+  }
+
+  selectReasoning(id: string): Promise<void> {
+    return this.selectSessionChoice(this.state.reasoning, id);
+  }
+
+  private async selectSessionChoice(
+    choices: SessionChoices | null,
+    id: string,
+  ): Promise<void> {
     const connection = this.connection;
     const sessionId = this.sessionId;
     if (
       !connection ||
       !sessionId ||
-      !models ||
+      !choices ||
       this.turn ||
       this.connecting ||
       this.changingModel ||
-      models.currentId === id ||
-      !models.options.some((option) => option.id === id)
+      choices.currentId === id ||
+      !choices.options.some((option) => option.id === id)
     )
       return;
 
     this.changingModel = connection
-      .setModel(sessionId, models.configId, id)
-      .then((updated) => {
+      .setConfigOption(sessionId, choices.configId, id)
+      .then(({ configOptions }) => {
         if (this.connection === connection && this.sessionId === sessionId)
-          this.update({ models: updated });
+          this.update(sessionChoicesFromConfig(configOptions));
       })
       .catch((error) => {
         if (this.connection !== connection || this.sessionId !== sessionId)
           return;
         const failure = toFailure(error);
         logError(
-          `Model selection failed (${failure.key}) ${JSON.stringify(failure.params)}`,
+          `Session option selection failed (${failure.key}) ${JSON.stringify(failure.params)}`,
         );
         this.update({ error: failure });
       })
@@ -389,6 +412,7 @@ export class ChatController {
       canRestore: false,
       error: null,
       models: null,
+      reasoning: null,
     });
     await this.connecting;
   }
@@ -414,6 +438,7 @@ export class ChatController {
       error: null,
       connection: "disconnected",
       models: null,
+      reasoning: null,
     });
   }
 
@@ -431,7 +456,7 @@ export class ChatController {
       getDefaultProfile(
         !defaultId && saved.length
           ? saved
-          : [...saved, ...(await discoverAgentProfiles())],
+          : mergeProfiles(saved, await discoverAgentProfiles()),
       );
     if (signal.aborted) return false;
     if (!profile) {
@@ -446,7 +471,14 @@ export class ChatController {
     const releaseSecrets = redactor.retainSecrets(secretValues(profile));
     try {
       const spec = await resolveLaunchSpec(profile);
-      const connection = await AgentConnection.open(spec, signal);
+      const connection = await AgentConnection.open(
+        spec,
+        signal,
+        profile.id === "detected-antigravity" ||
+          /(?:^|[\\/])agy(?:\.exe)?$/i.test(spec.command)
+          ? (request) => this.requestAgentPermission(request)
+          : undefined,
+      );
       if (signal.aborted) {
         await connection.close();
         return false;
@@ -503,7 +535,7 @@ export class ChatController {
     connection: AgentConnection,
     restoreId: string | null = null,
   ): Promise<void> {
-    this.update({ canRestore: false, models: null });
+    this.update({ canRestore: false, models: null, reasoning: null });
     const mcpServers = this.paperTools ? [this.paperTools.server] : [];
     if (restoreId && connection.supportsSessionRestore) {
       this.replaying = restoreId;
@@ -524,7 +556,7 @@ export class ChatController {
         // and output that arrived after cancellation.
         this.sessionId = restoreId;
         if (response.configOptions)
-          this.update({ models: modelsFromConfig(response.configOptions) });
+          this.update(sessionChoicesFromConfig(response.configOptions));
         return;
       }
     }
@@ -536,7 +568,7 @@ export class ChatController {
     if (this.connection !== connection) return;
     this.sessionId = sessionId;
     this.restorableSession = null;
-    this.update({ models: modelsFromConfig(configOptions) });
+    this.update(sessionChoicesFromConfig(configOptions));
   }
 
   private handleEvent(event: AgentEvent): void {
@@ -553,7 +585,7 @@ export class ChatController {
     const { sessionId, update } = event.params;
     if (update.sessionUpdate === "config_option_update") {
       if (sessionId === this.sessionId || sessionId === this.replaying) {
-        this.update({ models: modelsFromConfig(update.configOptions) });
+        this.update(sessionChoicesFromConfig(update.configOptions));
       }
       return;
     }
@@ -589,6 +621,51 @@ export class ChatController {
             }
           : message,
       ),
+    });
+  }
+
+  private async requestAgentPermission({
+    sessionId,
+    toolCall,
+    options,
+  }: acp.RequestPermissionRequest): Promise<acp.RequestPermissionResponse> {
+    const signal = this.turn?.abort.signal;
+    const allowOnce = options.find(({ kind }) => kind === "allow_once");
+    const denyOnce = options.find(({ kind }) => kind === "reject_once");
+    if (
+      !signal ||
+      signal.aborted ||
+      sessionId !== this.sessionId ||
+      !allowOnce ||
+      this.state.agentPermission
+    )
+      return { outcome: { outcome: "cancelled" } };
+
+    return new Promise((resolve) => {
+      const cancel = () => {
+        signal.removeEventListener("abort", cancel);
+        this.update({ agentPermission: null });
+        resolve({ outcome: { outcome: "cancelled" } });
+      };
+      const permission: AgentPermission = {
+        title: redactor.redact(toolCall.title ?? ""),
+        details: redactor.redact(
+          JSON.stringify(toolCall.rawInput, null, 2) ?? "",
+        ),
+        decide: (allow) => {
+          if (this.state.agentPermission !== permission) return;
+          const option = allow ? allowOnce : denyOnce;
+          signal.removeEventListener("abort", cancel);
+          this.update({ agentPermission: null });
+          resolve({
+            outcome: option
+              ? { outcome: "selected", optionId: option.optionId }
+              : { outcome: "cancelled" },
+          });
+        },
+      };
+      signal.addEventListener("abort", cancel, { once: true });
+      this.update({ agentPermission: permission });
     });
   }
 
@@ -630,6 +707,7 @@ export class ChatController {
       error: failure,
       canRestore: this.restorableSession !== null,
       models: null,
+      reasoning: null,
     });
     return false;
   }

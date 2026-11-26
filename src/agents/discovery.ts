@@ -1,5 +1,5 @@
 import { subprocess } from "../acp/subprocess";
-import { baseEnvironment } from "./launch";
+import { baseEnvironment, defaultWorkspace } from "./launch";
 import type { AgentProfile } from "./profile";
 
 const BRIDGED = [
@@ -36,6 +36,7 @@ async function findProfiles(): Promise<AgentProfile[]> {
     searchEnv.PATH === env.PATH ? {} : { PATH: searchEnv.PATH };
   const find = (command: string) => findExecutable(command, searchEnv);
   const npm = find("npx");
+  const adapterCache = PathUtils.join(defaultWorkspace(), ".npm-cache");
   const profiles = await Promise.all(
     BRIDGED.map(async ({ id, name, cli, adapter, pkg, executableVar }) => {
       const executable = await find(cli);
@@ -47,28 +48,40 @@ async function findProfiles(): Promise<AgentProfile[]> {
         command: installedAdapter ?? (await npm) ?? "npx",
         args: installedAdapter
           ? []
-          : ["--yes", `--package=${pkg}`, "--", adapter],
+          : [
+              `--cache=${adapterCache}`,
+              "--yes",
+              `--package=${pkg}`,
+              "--",
+              adapter,
+            ],
         env: { ...pathEnv, [executableVar]: executable },
         cwd: "",
       };
     }),
   );
-  const opencode = await find("opencode");
-  return [
-    ...profiles.filter((profile) => profile !== null),
-    ...(opencode
-      ? [
-          {
-            id: "detected-opencode",
-            name: "OpenCode",
-            command: opencode,
-            args: ["acp"],
-            env: pathEnv,
-            cwd: "",
-          },
-        ]
-      : []),
-  ];
+  const nativeProfiles = await Promise.all(
+    [
+      {
+        id: "detected-opencode",
+        name: "OpenCode",
+        cli: "opencode",
+        args: ["acp"],
+      },
+      {
+        id: "detected-antigravity",
+        name: "Antigravity",
+        cli: "agy",
+        args: ["acp", "--process-per-session"],
+      },
+    ].map(async ({ id, name, cli, args }) => {
+      const command = await find(cli);
+      return command
+        ? { id, name, command, args, env: pathEnv, cwd: "" }
+        : null;
+    }),
+  );
+  return [...profiles, ...nativeProfiles].filter((profile) => profile !== null);
 }
 
 async function findExecutable(

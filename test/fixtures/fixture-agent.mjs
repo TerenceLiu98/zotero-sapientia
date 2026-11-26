@@ -49,33 +49,51 @@ const storePath = arg("store");
 const capabilities = JSON.parse(arg("capabilities", '{"loadSession":true}'));
 const mode = arg("mode", "normal");
 const offersModels = argv.includes("--models");
-const modelConfig = (currentValue = "fast") => [
+const offersReasoning = argv.includes("--reasoning");
+const modelPrefix = arg("model-prefix", "");
+const sessionConfig = ({ model = "fast", reasoning = "low" } = {}) => [
   {
     id: "fixture-model",
     name: "Model",
     category: "model",
     type: "select",
-    currentValue,
+    currentValue: model,
     options: [
       {
         group: "fixture",
         name: "Fixture",
         options: [
-          { value: "fast", name: "Fixture Fast" },
+          { value: "fast", name: `${modelPrefix}Fixture Fast` },
           {
             value: "careful",
-            name: "Fixture Careful Research Model with Extended Reasoning",
+            name: `${modelPrefix}Fixture Careful Research Model with Extended Reasoning`,
           },
         ],
       },
     ],
   },
+  ...(offersReasoning
+    ? [
+        {
+          id: "reasoning",
+          name: "Reasoning",
+          category: "thought_level",
+          type: "select",
+          currentValue: reasoning,
+          options: [
+            { value: "low", name: "Low" },
+            { value: "high", name: "High" },
+          ],
+        },
+      ]
+    : []),
 ];
 const STORE_VERSION = 1;
 
 let sessionCounter = 0;
 /** The turn that is running, if any. */
 let turn = null;
+let permissionResponse;
 
 // Written synchronously, so that nothing is lost when the agent exits.
 const send = (message) => writeSync(1, `${JSON.stringify(message)}\n`);
@@ -299,6 +317,7 @@ async function runTurn(id, session, prompt) {
       }
       return end("end_turn");
     }
+    case "permission-tools":
     case "zotero-tools": {
       const context = prompt.find((block) =>
         block.text?.startsWith("Use the zotero-sapientia tools with turnId"),
@@ -306,6 +325,30 @@ async function runTurn(id, session, prompt) {
       const turnId = /turnId "([^"]+)"/.exec(context?.text)?.[1];
       const calls = JSON.parse(rest.join(":"));
       for (const [name, args] of calls) {
+        if (command === "permission-tools") {
+          const permission = new Promise((resolve) => {
+            permissionResponse = resolve;
+          });
+          send({
+            jsonrpc: "2.0",
+            id: "fixture-permission",
+            method: "session/request_permission",
+            params: {
+              sessionId: session.sessionId,
+              toolCall: {
+                toolCallId: "read-tags",
+                title: name,
+                rawInput: args ?? {},
+              },
+              options: [
+                { optionId: "allow", name: "Allow once", kind: "allow_once" },
+                { optionId: "deny", name: "Deny", kind: "reject_once" },
+              ],
+            },
+          });
+          if ((await permission)?.outcome?.optionId !== "allow")
+            return end("cancelled");
+        }
         const result = await callZoteroTool(session.mcpServers[0], name, {
           turnId,
           ...args,
@@ -424,6 +467,12 @@ async function runTurn(id, session, prompt) {
 }
 
 async function handle(message) {
+  if (message.id === "fixture-permission" && message.method === undefined) {
+    log(message);
+    permissionResponse?.(message.result);
+    permissionResponse = undefined;
+    return;
+  }
   if (message.id === undefined) {
     log({ ...message });
     if (message.method === "session/cancel" && turn) {
@@ -463,7 +512,7 @@ async function handle(message) {
       writeStore(sessions);
       return reply(id, {
         sessionId,
-        ...(offersModels ? { configOptions: modelConfig() } : {}),
+        ...(offersModels ? { configOptions: sessionConfig() } : {}),
       });
     }
     case "session/load": {
@@ -474,17 +523,20 @@ async function handle(message) {
       }
       return reply(
         id,
-        offersModels ? { configOptions: modelConfig(session.model) } : {},
+        offersModels ? { configOptions: sessionConfig(session) } : {},
       );
     }
     case "session/set_config_option": {
       const sessions = readStore();
       const session = sessions[params.sessionId];
-      if (!session || !offersModels || params.configId !== "fixture-model")
-        return refuse(id, -32602, "unknown model option");
-      session.model = params.value;
+      if (!session || !offersModels)
+        return refuse(id, -32602, "unknown session option");
+      if (params.configId === "fixture-model") session.model = params.value;
+      else if (offersReasoning && params.configId === "reasoning")
+        session.reasoning = params.value;
+      else return refuse(id, -32602, "unknown session option");
       writeStore(sessions);
-      return reply(id, { configOptions: modelConfig(session.model) });
+      return reply(id, { configOptions: sessionConfig(session) });
     }
     case "session/prompt": {
       const sessions = readStore();

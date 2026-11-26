@@ -1,4 +1,4 @@
-import { X } from "lucide";
+import { Pencil, Plus, RotateCcw, Star, Trash2, X } from "lucide";
 import { config } from "../../../package.json";
 import { discoverAgentProfiles } from "../../agents/discovery";
 import {
@@ -14,12 +14,13 @@ import {
   getDefaultProfile,
   getDefaultProfileId,
   loadProfiles,
+  mergeProfiles,
   saveProfiles,
   setDefaultProfileId,
 } from "../../agents/store";
 import { getString, type MessageId } from "../../utils/locale";
-import { COMBOBOX_STYLES, createCombobox } from "../ui/combobox";
-import { h, lucideIcon } from "../ui/dom";
+import { agentIcon } from "../ui/agent-icon";
+import { h, iconButton, lucideIcon } from "../ui/dom";
 import { SURFACE_STYLES } from "../ui/styles";
 import { SETTINGS_STYLES } from "./styles";
 
@@ -29,13 +30,7 @@ const HTML_NS = "http://www.w3.org/1999/xhtml";
 type TextField = "name" | "command" | "args" | "cwd";
 
 type ButtonAction =
-  | "add"
-  | "edit"
-  | "remove"
-  | "save"
-  | "cancel"
-  | "add-variable"
-  | "drop-variable";
+  "add" | "save" | "cancel" | "add-variable" | "drop-variable";
 
 const FIELD_MESSAGE: Record<ProfileField, MessageId> = {
   name: "prefs-error-name",
@@ -61,7 +56,7 @@ export function renderSettingsPane(
   container: Element,
 ): () => void {
   const style = doc.createElementNS(HTML_NS, "style");
-  style.textContent = SURFACE_STYLES + SETTINGS_STYLES + COMBOBOX_STYLES;
+  style.textContent = SURFACE_STYLES + SETTINGS_STYLES;
 
   let profiles = loadProfiles();
   let detected: AgentProfile[] = [];
@@ -70,13 +65,21 @@ export function renderSettingsPane(
   /** The id of one of the pane's elements. */
   const id = (part: string) => `${config.addonRef}-${part}`;
 
-  const list = h(doc, "div", { class: "sap-prefs-list" });
+  const list = h(doc, "div", {
+    class: "sap-prefs-list",
+    role: "list",
+    "aria-label": getString("prefs-agents"),
+  });
   const name = field("name");
   const command = field("command");
   const args = field("args");
   const cwd = field("cwd");
   const variableRows = h(doc, "div", { class: "sap-prefs-env" });
   const error = h(doc, "div", { class: "sap-prefs-error", role: "alert" });
+  const discardSlot = h(doc, "div", {
+    class: "sap-prefs-discard",
+    hidden: true,
+  });
   const editor = h(
     doc,
     "div",
@@ -111,18 +114,20 @@ export function renderSettingsPane(
       "div",
       { class: "sap-prefs-actions" },
       button("prefs-agent-save", "primary", "save", save),
-      button("prefs-agent-cancel", "", "cancel", closeEditor),
+      button("prefs-agent-cancel", "", "cancel", () => {
+        const previous = draft?.id;
+        closeEditor();
+        focusEdit(previous);
+      }),
+      discardSlot,
     ),
   );
-  const defaultAgent = createCombobox(doc, {
-    id: `${config.addonRef}-default-agent`,
-    label: getString("prefs-default-agent"),
-    placeholder: getString("prefs-default-placeholder"),
-    emptyText: getString("prefs-combobox-empty"),
-    options: [],
-    value: null,
-    onChange: (value) => setDefaultProfileId(value ?? ""),
-  });
+  editor.id = id("agent-editor");
+  const addButton = button("prefs-agent-add", "", "add", () =>
+    startEditing(""),
+  );
+  addButton.prepend(lucideIcon(doc, Plus, 15));
+  const addEditor = h(doc, "div");
   const root = h(
     doc,
     "div",
@@ -131,17 +136,11 @@ export function renderSettingsPane(
       doc,
       "div",
       { class: "sap-prefs-section" },
-      h(
-        doc,
-        "label",
-        { class: "sap-prefs-heading" },
-        getString("prefs-agents"),
-      ),
+      h(doc, "div", { class: "sap-prefs-heading" }, getString("prefs-agents")),
       list,
-      button("prefs-agent-add", "", "add", () => startEditing("")),
-      editor,
+      addButton,
+      addEditor,
     ),
-    h(doc, "div", { class: "sap-prefs-section" }, defaultAgent.element),
   );
 
   function field(text: TextField): Field {
@@ -230,7 +229,9 @@ export function renderSettingsPane(
 
   /** Opens the editor on an agent, or on a blank one when given "". */
   function startEditing(profileId: string): void {
-    const known = profiles.find((profile) => profile.id === profileId);
+    const known = mergeProfiles(profiles, detected).find(
+      (profile) => profile.id === profileId,
+    );
     draft = { id: known?.id ?? "" };
     name.input.value = known?.name ?? "";
     command.input.value = known?.command ?? "";
@@ -242,12 +243,26 @@ export function renderSettingsPane(
     }
     showError(null);
     editor.hidden = false;
+    renderList();
     name.input.focus();
   }
 
   function closeEditor(): void {
     draft = null;
     editor.hidden = true;
+    editor.remove();
+    addButton.hidden = false;
+    renderList();
+  }
+
+  function focusEdit(profileId?: string): void {
+    const row = [...list.querySelectorAll<HTMLElement>("[data-profile]")].find(
+      (row) => row.dataset.profile === profileId,
+    );
+    (
+      (row?.querySelector('[data-action="edit"]') as HTMLButtonElement) ??
+      addButton
+    ).focus();
   }
 
   /** Reads the editor into a profile. Throws a `ProfileError` naming the first invalid field. */
@@ -308,12 +323,14 @@ export function renderSettingsPane(
       showError(error.field);
       return;
     }
-    profiles = [
-      ...profiles.filter((existing) => existing.id !== profile.id),
-      profile,
-    ];
+    profiles = profiles.some((existing) => existing.id === profile.id)
+      ? profiles.map((existing) =>
+          existing.id === profile.id ? profile : existing,
+        )
+      : [...profiles, profile];
     closeEditor();
     commit();
+    focusEdit(profile.id);
   }
 
   function remove(profile: AgentProfile): void {
@@ -322,6 +339,7 @@ export function renderSettingsPane(
       closeEditor();
     }
     commit();
+    focusEdit(profile.id);
   }
 
   function commit(): void {
@@ -335,73 +353,120 @@ export function renderSettingsPane(
   }
 
   function renderList(): void {
+    const available = mergeProfiles(profiles, detected);
+    const detectedIDs = new Set(detected.map(({ id }) => id));
+    const ordered = [
+      ...detected.map((profile) =>
+        available.find(({ id }) => id === profile.id)!,
+      ),
+      ...available.filter(({ id }) => !detectedIDs.has(id)),
+    ];
+    const defaultId = getDefaultProfile(available)?.id;
     list.replaceChildren(
-      ...(profiles.length
-        ? profiles.map((profile) =>
-            h(
+      ...(ordered.length
+        ? ordered.map((profile) => {
+            const editing = draft?.id === profile.id;
+            const edit = iconButton(
+              doc,
+              getString("prefs-agent-edit", { name: profile.name }),
+              Pencil,
+              () => (editing ? closeEditor() : startEditing(profile.id)),
+              "sap-prefs-button-icon",
+            );
+            edit.dataset.action = "edit";
+            edit.setAttribute("aria-expanded", String(editing));
+            edit.setAttribute("aria-controls", editor.id);
+            const makeDefault = iconButton(
+              doc,
+              getString("prefs-agent-make-default", { name: profile.name }),
+              Star,
+              () => {
+                setDefaultProfileId(profile.id);
+                focusEdit(profile.id);
+              },
+              "sap-prefs-button-icon",
+            );
+            makeDefault.dataset.action = "make-default";
+            if (editing) {
+              const saved = profiles.some(({ id }) => id === profile.id);
+              discardSlot.hidden = !saved;
+              discardSlot.replaceChildren();
+              if (saved) {
+                const detected = detectedIDs.has(profile.id);
+                const discard = iconButton(
+                  doc,
+                  getString(
+                    detected ? "prefs-agent-reset" : "prefs-agent-delete",
+                    { name: profile.name },
+                  ),
+                  detected ? RotateCcw : Trash2,
+                  () => remove(profile),
+                  "sap-prefs-button-icon",
+                );
+                discard.dataset.action = "remove";
+                discardSlot.append(discard);
+              }
+            }
+            return h(
               doc,
               "div",
-              { class: "sap-prefs-row", "data-profile": profile.id },
+              {
+                class: "sap-prefs-entry",
+                role: "listitem",
+                "data-profile": profile.id,
+              },
               h(
                 doc,
-                "button",
-                {
-                  type: "button",
-                  class: "sap-prefs-row-edit",
-                  "data-action": "edit",
-                  click: () => startEditing(profile.id),
-                },
-                h(doc, "span", { class: "sap-prefs-row-name" }, profile.name),
-                // Arguments can carry credentials.
+                "div",
+                { class: "sap-prefs-row" },
                 h(
                   doc,
                   "span",
-                  { class: "sap-prefs-row-command" },
-                  profile.command,
+                  { class: "sap-prefs-agent-icon" },
+                  agentIcon(doc, profile, 20),
                 ),
+                h(
+                  doc,
+                  "div",
+                  { class: "sap-prefs-row-label" },
+                  h(doc, "span", { class: "sap-prefs-row-name" }, profile.name),
+                  h(
+                    doc,
+                    "span",
+                    { class: "sap-prefs-row-command", title: profile.command },
+                    profile.command,
+                  ),
+                ),
+                profile.id === defaultId
+                  ? h(
+                      doc,
+                      "span",
+                      { class: "sap-prefs-default-tag" },
+                      getString("prefs-agent-default"),
+                    )
+                  : makeDefault,
+                edit,
               ),
-              h(
-                doc,
-                "button",
-                {
-                  class: "sap-prefs-button-icon",
-                  type: "button",
-                  "data-action": "remove",
-                  "aria-label": getString("prefs-agent-delete", {
-                    name: profile.name,
-                  }),
-                  click: () => remove(profile),
-                },
-                lucideIcon(doc, X),
-              ),
-            ),
-          )
+              editing ? editor : null,
+            );
+          })
         : [
             h(
               doc,
               "div",
-              { class: "sap-prefs-empty" },
+              { class: "sap-prefs-empty", role: "listitem" },
               getString("prefs-no-agent"),
             ),
           ]),
     );
-  }
-
-  function renderDefaultAgent(): void {
-    const available = [...profiles, ...detected];
-    defaultAgent.setOptions(
-      available.map((profile) => ({
-        value: profile.id,
-        label: profile.name,
-        hint: profiles.includes(profile) ? profile.command : undefined,
-      })),
-    );
-    defaultAgent.setValue(getDefaultProfile(available)?.id ?? null);
+    addButton.hidden = draft?.id === "";
+    if (addButton.hidden) {
+      discardSlot.hidden = true;
+      addEditor.append(editor);
+    }
   }
 
   closeEditor();
-  renderList();
-  renderDefaultAgent();
   container.replaceChildren(style, root);
 
   const profileObserver = Zotero.Prefs.registerObserver(
@@ -409,20 +474,19 @@ export function renderSettingsPane(
     () => {
       profiles = loadProfiles();
       renderList();
-      renderDefaultAgent();
     },
     true,
   );
   const defaultObserver = Zotero.Prefs.registerObserver(
     `${config.prefsPrefix}.defaultProfileId`,
-    renderDefaultAgent,
+    renderList,
     true,
   );
   let disposed = false;
   void discoverAgentProfiles().then((result) => {
     if (disposed) return;
     detected = result;
-    renderDefaultAgent();
+    renderList();
   });
   const dispose = () => {
     if (disposed) {
@@ -432,7 +496,6 @@ export function renderSettingsPane(
     doc.defaultView?.removeEventListener("unload", dispose);
     Zotero.Prefs.unregisterObserver(profileObserver);
     Zotero.Prefs.unregisterObserver(defaultObserver);
-    defaultAgent.destroy();
   };
   doc.defaultView?.addEventListener("unload", dispose, { once: true });
   return dispose;
