@@ -36,7 +36,6 @@ export const ANSWER_STYLES = `
   min-width: 0;
   padding: 2px;
   overflow-x: auto;
-  scrollbar-width: none;
 }
 .sap-answer button.sap-answer-source {
   display: inline-flex;
@@ -129,10 +128,15 @@ export const ANSWER_STYLES = `
 }
 .sap-answer-text code { font-family: ui-monospace, monospace; }
 .sap-answer-text .katex { font-family: KaTeX_Main, "Times New Roman", serif; }
-.sap-answer-text .katex-block {
+.sap-answer-text :is(.katex-block, .sap-answer-table) {
   overflow-x: auto;
   overflow-wrap: normal;
-  scrollbar-width: thin;
+}
+.sap-answer-table { margin-block-end: 8px; }
+.sap-answer-table table { border-collapse: collapse; }
+.sap-answer-table :is(th, td) {
+  padding: 4px 6px;
+  border: 1px solid var(--sap-border);
 }
 .sap-answer .sap-citation-index {
   display: inline-block;

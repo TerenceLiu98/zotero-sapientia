@@ -156,6 +156,7 @@ describe("write approval in the Zotero sidebar", function () {
       resize(300);
       permissionTrigger.click();
       assert.isTrue(permissions.matches(":popover-open"));
+      assert.equal(win.getComputedStyle(permissions)!.scrollbarWidth, "none");
       assert.lengthOf(
         permissions.querySelectorAll('[role="menuitemcheckbox"]'),
         1,
@@ -199,6 +200,13 @@ describe("write approval in the Zotero sidebar", function () {
         proposal("create_note", { html: large }),
       );
       await pending();
+      for (const selector of [".sap-write-list", ".sap-write-note"]) {
+        assert.equal(
+          win.getComputedStyle(review().querySelector(selector)!)!
+            .scrollbarWidth,
+          "none",
+        );
+      }
       assert.include(review().textContent, title);
       assert.equal(
         review().querySelector("h3")?.textContent,
