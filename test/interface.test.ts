@@ -696,10 +696,21 @@ describe("the docked chat panel", function () {
       ".sap-composer-picker-label",
     )!;
     const send = pane.querySelector<HTMLElement>(".sap-composer-send")!;
+    const modelLayout = () => {
+      const labelStyle = window.getComputedStyle(label)!;
+      return `label ${JSON.stringify(label.textContent)}, font ${labelStyle.fontSize} ${labelStyle.fontFamily}, line height ${labelStyle.lineHeight}, widths (pane/picker/button/label) ${[
+        pane,
+        picker.parentElement!,
+        picker,
+        label,
+      ]
+        .map((element) => element.getBoundingClientRect().width)
+        .join("/")}`;
+    };
     assert.equal(
       label.clientHeight,
       20,
-      "a short model name stays on one line",
+      `a short model name stays on one line (${modelLayout()})`,
     );
     assert.isNotNull(picker.querySelector(".sap-composer-picker-icon svg"));
     assert.equal(send.getBoundingClientRect().height, 34);
@@ -772,7 +783,11 @@ describe("the docked chat panel", function () {
       label.textContent,
       "Fixture Careful Research Model with Extended Reasoning · Low",
     );
-    assert.isAbove(label.clientHeight, 20, "the selected model wraps");
+    assert.isAbove(
+      label.clientHeight,
+      20,
+      `the selected model wraps (${modelLayout()})`,
+    );
     assert.isAtMost(
       label.scrollWidth,
       label.clientWidth,

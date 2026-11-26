@@ -110,7 +110,9 @@ export const COMPOSER_STYLES = `
   min-width: 0;
 }
 .sap-composer-picker {
-  flex: 0 1 auto;
+  display: flex;
+  flex: 1 1 0;
+  justify-content: flex-end;
   min-width: 0;
 }
 .sap-composer-permissions { flex: none; margin-inline-end: auto; }
@@ -188,7 +190,6 @@ export const COMPOSER_STYLES = `
   display: flex;
   align-items: center;
   gap: 8px;
-  width: max-content;
   max-width: 100%;
   min-width: 0;
   height: auto;
