@@ -1,5 +1,4 @@
 import { assert } from "chai";
-import { config } from "../package.json";
 import { saveProfiles } from "../src/agents/store";
 import { ChatController } from "../src/chat/controller";
 import { createPaperContext } from "../src/context/paper";
@@ -336,13 +335,7 @@ describe("paper context in the Zotero reader", function () {
       );
     }
 
-    const legacyReadScope = `${config.prefsPrefix}.readScope`;
     try {
-      Zotero.Prefs.set(
-        legacyReadScope,
-        "metadata,pdf,selection,annotations,notes,tags",
-        true,
-      );
       await open(pdf);
       const reader = Zotero.Reader.getByTabID(win.Zotero_Tabs.selectedID)!;
       setSelection(reader, "first marker", 2);
@@ -478,7 +471,6 @@ describe("paper context in the Zotero reader", function () {
         year: null,
       });
     } finally {
-      Zotero.Prefs.clear(legacyReadScope, true);
       tracker.dispose();
       await chat.disconnect();
     }

@@ -705,7 +705,6 @@ function snapshotContext({
       ...(paper.attachments && {
         attachments: paper.attachments.map((attachment) => ({ ...attachment })),
       }),
-      materials: { ...paper.materials },
     },
     ...(tagItems && {
       tagItems: tagItems.map((item) => ({

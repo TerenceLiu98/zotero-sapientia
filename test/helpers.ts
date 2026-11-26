@@ -34,10 +34,10 @@ export interface FixtureAgent {
 
 /** Copies the fixture agent to a fresh directory. */
 export async function makeAgent(name: string): Promise<FixtureAgent> {
-  const parent = Zotero.getTempDirectory().clone();
-  parent.normalize();
   const dir = await IOUtils.createUniqueDirectory(
-    parent.path,
+    // The scaffold clears this isolated profile before each run. Zotero's
+    // application-wide temp directory is shared by parallel instances.
+    PathUtils.profileDir,
     `sapientia test ${name}`,
   );
   const script = PathUtils.join(dir, "fixture agent.mjs");
