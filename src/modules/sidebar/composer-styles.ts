@@ -111,9 +111,7 @@ export const COMPOSER_STYLES = `
 }
 .sap-composer-picker {
   flex: 0 1 auto;
-  width: max-content;
   min-width: 0;
-  max-width: calc(100% - 42px);
 }
 .sap-composer-permissions { flex: none; margin-inline-end: auto; }
 .sap-chat-composer .sap-permission-trigger {
@@ -187,11 +185,11 @@ export const COMPOSER_STYLES = `
 }
 .sap-chat-composer button.sap-composer-picker-trigger {
   appearance: none;
-  display: grid;
-  grid-template-columns: 17px minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
   min-width: 0;
   height: auto;
   min-height: 34px;
@@ -207,6 +205,7 @@ export const COMPOSER_STYLES = `
   text-align: start;
   cursor: pointer;
 }
+.sap-composer-picker-trigger .sap-composer-picker-icon { flex: none; width: 17px; }
 .sap-composer-picker-trigger:hover:enabled,
 .sap-composer-picker-trigger[aria-expanded="true"] {
   background: var(--sap-hover);
