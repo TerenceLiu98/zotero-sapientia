@@ -110,15 +110,19 @@ export const COMPOSER_STYLES = `
   min-width: 0;
 }
 .sap-composer-picker {
-  flex: 0 1 auto;
+  display: flex;
+  flex: 1 1 0;
+  justify-content: flex-end;
   min-width: 0;
 }
-.sap-composer-permissions { flex: none; margin-inline-end: auto; }
+.sap-composer-permissions { flex: none; max-width: 36%; margin-inline-end: auto; }
 .sap-chat-composer .sap-permission-trigger {
   appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   height: 34px;
   padding: 0 10px;
   margin: 0;
@@ -131,7 +135,13 @@ export const COMPOSER_STYLES = `
   cursor: pointer;
 }
 .sap-permission-trigger:is(:hover, [aria-expanded="true"]) { background: var(--sap-hover); }
-.sap-permission-icon { display: inline-flex; color: var(--fill-secondary); }
+.sap-permission-icon { display: inline-flex; flex: none; color: var(--fill-secondary); }
+.sap-permission-trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 @container (max-width: 320px) {
   .sap-permission-trigger-label { display: none; }
 }
@@ -188,7 +198,6 @@ export const COMPOSER_STYLES = `
   display: flex;
   align-items: center;
   gap: 8px;
-  width: max-content;
   max-width: 100%;
   min-width: 0;
   height: auto;
