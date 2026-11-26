@@ -1,5 +1,4 @@
 import { config } from "../../package.json";
-import { logError } from "../utils/log";
 
 export interface PaperAttachment {
   itemID: number;
@@ -20,12 +19,6 @@ export interface PaperContext {
   year: string;
   attachment?: PaperAttachment;
   attachments?: PaperAttachment[];
-  materials: {
-    metadata: boolean;
-    pdfText: boolean;
-    selectedText: boolean;
-    annotations: boolean;
-  };
 }
 
 export interface SelectedText {
@@ -52,8 +45,6 @@ type PdfReaderState = ReaderState & {
   primaryViewSelectionPopup?: { annotation?: Selection };
   secondaryViewSelectionPopup?: { annotation?: Selection };
 };
-type PdfAttachment = Zotero.Item & { fileExistsCached(): boolean | null };
-
 function readerState(reader: Reader) {
   return reader._internalReader?._state as PdfReaderState | undefined;
 }
@@ -104,6 +95,10 @@ function selectionFrom(
   };
 }
 
+export function paperIdentity(item: Zotero.Item) {
+  return { itemID: item.id, itemKey: item.key, libraryID: item.libraryID };
+}
+
 export function paperMetadata(item: Zotero.Item) {
   const primaryCreator = Zotero.CreatorTypes.getPrimaryIDForType(
     item.itemTypeID,
@@ -116,9 +111,7 @@ export function paperMetadata(item: Zotero.Item) {
     );
   const year = item.getField("year");
   return {
-    itemID: item.id,
-    itemKey: item.key,
-    libraryID: item.libraryID,
+    ...paperIdentity(item),
     title: item.getDisplayTitle(),
     authors,
     abstract: item.getField("abstractNote"),
@@ -149,7 +142,7 @@ export function findTagItem(
 
 function paperFrom(
   item: Zotero.Item,
-  attachment: PdfAttachment | undefined,
+  attachment: Zotero.Item | undefined,
   reader: Reader | undefined,
 ): PaperContext {
   const state = reader && readerState(reader);
@@ -165,13 +158,6 @@ function paperFrom(
       pageLabel: stats?.pageLabel,
     },
     attachments: paperAttachments(item).map(describeAttachment),
-    materials: {
-      metadata: true,
-      pdfText:
-        !!attachment && (!!reader || attachment.fileExistsCached() === true),
-      selectedText: !!reader && !!currentSelection(reader),
-      annotations: !!attachment?.numAnnotations(),
-    },
   };
 }
 
@@ -193,7 +179,6 @@ export function createPaperContext(
   let timer: number | undefined;
   let disposed = false;
   let previous: string | null | undefined;
-  const probed = new WeakSet<PdfAttachment>();
   const listeners = [
     window.document.getElementById("zotero-items-tree"),
     window.document.getElementById("zotero-collections-tree"),
@@ -220,10 +205,10 @@ export function createPaperContext(
     if (item.isPDFAttachment()) {
       const parent = item.parentItem ?? item;
       if (!parent.deleted) {
-        return { item: parent, attachment: item as PdfAttachment, reader };
+        return { item: parent, attachment: item, reader };
       }
     } else if (item.isRegularItem()) {
-      const attachment = paperAttachments(item)[0] as PdfAttachment | undefined;
+      const [attachment] = paperAttachments(item);
       return { item, attachment };
     }
   }
@@ -258,24 +243,7 @@ export function createPaperContext(
 
   function refresh() {
     if (timer === undefined) return;
-    const active = target();
-    const attachment = active?.attachment;
-    if (
-      attachment &&
-      attachment.fileExistsCached() === null &&
-      !probed.has(attachment)
-    ) {
-      probed.add(attachment);
-      void attachment
-        .fileExists()
-        .then(refresh)
-        .catch((error) =>
-          logError("Could not check for the current PDF", error),
-        );
-    }
-    const snapshot =
-      active && paperFrom(active.item, attachment, active.reader);
-    const signature = JSON.stringify(snapshot ?? readTagItems());
+    const signature = JSON.stringify(read() ?? readTagItems());
     if (signature !== previous) {
       previous = signature;
       onChange();

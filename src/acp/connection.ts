@@ -1,9 +1,5 @@
 import * as acp from "@agentclientprotocol/sdk";
-import type {
-  McpServer,
-  RequestPermissionRequest,
-  RequestPermissionResponse,
-} from "@agentclientprotocol/sdk";
+import type { McpServer } from "@agentclientprotocol/sdk";
 import { version } from "../../package.json";
 import type { LaunchSpec } from "../agents/launch";
 import { withTimeout } from "../utils/async";
@@ -12,7 +8,7 @@ import { redactor } from "../utils/log";
 import { modelsFromConfig, type SessionModels } from "./models";
 import { launchProcess, type AgentProcess } from "./process";
 
-export const CLIENT_NAME = "zotero-sapientia";
+const CLIENT_NAME = "zotero-sapientia";
 
 /**
  * How long the agent gets to answer the handshake and to open a session. The
@@ -31,15 +27,8 @@ export type AgentEvent =
   /** A `session/update` notification, delivered in arrival order. */
   | { type: "update"; params: acp.SessionNotification }
   /** The agent process has exited. */
-  | { type: "exit"; exitCode: number }
+  | { type: "exit" }
   | { type: "transport-closed"; error: UserError };
-
-export interface ConnectionOptions {
-  /** Answers the agent's `session/request_permission` requests. */
-  requestPermission?: (
-    params: RequestPermissionRequest,
-  ) => Promise<RequestPermissionResponse>;
-}
 
 type Listener = (event: AgentEvent) => void;
 
@@ -52,10 +41,9 @@ export class AgentConnection {
   static async open(
     spec: LaunchSpec,
     signal?: AbortSignal,
-    options: ConnectionOptions = {},
   ): Promise<AgentConnection> {
     signal?.throwIfAborted();
-    const connection = new AgentConnection(await launchProcess(spec), options);
+    const connection = new AgentConnection(await launchProcess(spec));
     const abort = () => void connection.close().catch(() => {});
     signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -73,7 +61,6 @@ export class AgentConnection {
 
   /** What the agent said it can do. */
   capabilities: acp.AgentCapabilities = {};
-  agentInfo: acp.Implementation | null = null;
 
   /** Whether the agent can reopen a session it was in before (`session/load`). */
   get supportsSessionRestore(): boolean {
@@ -82,27 +69,22 @@ export class AgentConnection {
 
   private readonly connection: acp.ClientConnection;
   private readonly listeners = new Set<Listener>();
-  private readonly options: ConnectionOptions;
   private exitCode: number | null = null;
   private closing: Promise<void> | null = null;
 
-  private constructor(
-    private readonly process: AgentProcess,
-    options: ConnectionOptions,
-  ) {
-    this.options = options;
+  private constructor(private readonly process: AgentProcess) {
     this.connection = acp
       .client({ name: CLIENT_NAME })
-      .onRequest(acp.methods.client.session.requestPermission, ({ params }) =>
-        this.answerPermission(params),
-      )
+      .onRequest(acp.methods.client.session.requestPermission, async () => ({
+        outcome: { outcome: "cancelled" },
+      }))
       .onNotification(acp.methods.client.session.update, ({ params }) =>
         this.emit({ type: "update", params }),
       )
       .connect(acp.ndJsonStream(process.stdin, process.stdout));
     void process.exited.then((exitCode) => {
       this.exitCode = exitCode;
-      this.emit({ type: "exit", exitCode });
+      this.emit({ type: "exit" });
     });
     void this.connection.closed.then(async () => {
       if (!this.closing) {
@@ -246,7 +228,6 @@ export class AgentConnection {
       });
     }
     this.capabilities = response.agentCapabilities ?? {};
-    this.agentInfo = response.agentInfo ?? null;
   }
 
   /**
@@ -262,17 +243,6 @@ export class AgentConnection {
       }
       throw await this.transportError(error);
     }
-  }
-
-  private async answerPermission(
-    params: RequestPermissionRequest,
-  ): Promise<RequestPermissionResponse> {
-    // Until the sidebar can ask the user, a request it cannot answer is a refusal.
-    return (
-      this.options.requestPermission?.(params) ?? {
-        outcome: { outcome: "cancelled" },
-      }
-    );
   }
 
   private async transportError(error: unknown): Promise<UserError> {
