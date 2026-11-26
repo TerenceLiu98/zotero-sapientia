@@ -132,7 +132,6 @@ permission-title = Agent write access
 permission-approval = Request approval
 permission-read-only = Read only
 permission-heading = How should Zotero writes be approved?
-permission-learn-more = Learn more
 permission-approval-scope = Metadata, notes, and tags · Manual approval
 permission-read-only-scope = Current paper · No writes
 permission-tag-deletion = Allow tag deletion

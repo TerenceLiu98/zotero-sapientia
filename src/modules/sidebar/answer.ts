@@ -454,6 +454,11 @@ function renderMarkdown(
   }
   for (const br of plainContent.querySelectorAll("br")) br.replaceWith("\n");
   const plainText = plainContent.textContent?.trim() ?? "";
+  for (const table of content.querySelectorAll("table")) {
+    const container = h(doc, "div", { class: "sap-answer-table" });
+    table.replaceWith(container);
+    container.append(table);
+  }
   const sources = new Map<string, AnswerSource>();
   const anchors = Array.from<HTMLAnchorElement>(
     content.querySelectorAll("a[data-sap-href]"),
