@@ -1,6 +1,11 @@
 import { defineConfig } from "zotero-plugin-scaffold";
 import pkg from "./package.json";
 
+const zoteroVersion =
+  "zoteroVersion" in pkg && typeof pkg.zoteroVersion === "string"
+    ? pkg.zoteroVersion
+    : pkg.version;
+
 export default defineConfig({
   source: ["src", "addon"],
   dist: ".scaffold/build",
@@ -19,7 +24,7 @@ export default defineConfig({
       author: pkg.author,
       description: pkg.description,
       homepage: pkg.homepage,
-      buildVersion: pkg.version,
+      buildVersion: zoteroVersion,
       buildTime: "{{buildTime}}",
     },
     prefs: {
