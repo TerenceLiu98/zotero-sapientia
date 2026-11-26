@@ -40,6 +40,7 @@ export type FluentMessageId =
   | 'composer-placeholder'
   | 'context-add-selection'
   | 'context-remove-selection'
+  | 'context-selected-items'
   | 'context-selection-number'
   | 'context-selection-source'
   | 'error-unexpected'

@@ -35,6 +35,7 @@ composer-agent-model = Agent and model
 composer-models = Models
 composer-models-loading = Loading models…
 context-selection-number = Selected text { $number }
+context-selected-items = { $count } selected items
 context-add-selection = Ask Agent
 context-remove-selection = Remove selection
 context-selection-source = { $title }, p. { $page }

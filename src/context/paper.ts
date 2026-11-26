@@ -127,6 +127,26 @@ export function paperMetadata(item: Zotero.Item) {
   };
 }
 
+export type TagItem = ReturnType<typeof paperMetadata>;
+
+export function findTagItem(
+  items: readonly TagItem[],
+  {
+    itemID,
+    itemKey,
+    libraryID,
+  }: Partial<Pick<TagItem, "itemID" | "itemKey" | "libraryID">>,
+) {
+  if (itemID === undefined && itemKey === undefined) return;
+  const matching = items.filter(
+    (item) =>
+      (itemID === undefined || itemID === item.itemID) &&
+      (itemKey === undefined || itemKey === item.itemKey) &&
+      (libraryID === undefined || libraryID === item.libraryID),
+  );
+  if (matching.length === 1) return matching[0];
+}
+
 function paperFrom(
   item: Zotero.Item,
   attachment: PdfAttachment | undefined,
@@ -213,6 +233,22 @@ export function createPaperContext(
     return active && paperFrom(active.item, active.attachment, active.reader);
   }
 
+  function readTagItems(): TagItem[] | undefined {
+    if (window.Zotero_Tabs.selectedType !== "library") return;
+    const selected = window.ZoteroPane.getSelectedItems();
+    if (selected.length < 2) return;
+    const papers = new Set<Zotero.Item>();
+    for (const selectedItem of selected) {
+      if (selectedItem.deleted) continue;
+      const item = selectedItem.isPDFAttachment()
+        ? selectedItem.parentItem
+        : selectedItem;
+      if (item?.isRegularItem() && !item.deleted && !item.isFeedItem)
+        papers.add(item);
+    }
+    if (papers.size > 1) return Array.from(papers, paperMetadata);
+  }
+
   function readSelection(): SelectedText | undefined {
     const reader = activeReader();
     if (reader?._item?.isPDFAttachment()) {
@@ -239,7 +275,7 @@ export function createPaperContext(
     }
     const snapshot =
       active && paperFrom(active.item, attachment, active.reader);
-    const signature = JSON.stringify(snapshot);
+    const signature = JSON.stringify(snapshot ?? readTagItems());
     if (signature !== previous) {
       previous = signature;
       onChange();
@@ -296,5 +332,5 @@ export function createPaperContext(
     Zotero.Reader.unregisterEventListener("renderTextSelectionPopup", onPopup);
   }
 
-  return { read, readSelection, setVisible, dispose };
+  return { read, readTagItems, readSelection, setVisible, dispose };
 }

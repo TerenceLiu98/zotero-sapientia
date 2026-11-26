@@ -28,8 +28,14 @@ export function createContextView(doc: Document, onAttach?: () => void) {
 
   function render() {
     const current = tracker.read();
-    element.hidden = !current;
-    title.textContent = current?.title ?? "";
+    const items = current ? undefined : tracker.readTagItems();
+    element.hidden = !current && !items;
+    title.textContent =
+      current?.title ??
+      (items
+        ? getString("context-selected-items", { count: items.length })
+        : "");
+    title.title = items?.map((item) => item.title).join("\n") ?? "";
   }
 
   function renderAttachments() {
@@ -119,6 +125,7 @@ export function createContextView(doc: Document, onAttach?: () => void) {
     snapshot() {
       return {
         paper: tracker.read(),
+        tagItems: tracker.readTagItems(),
         selections: Array.from(selections.values()),
         readSelection: tracker.readSelection,
       };

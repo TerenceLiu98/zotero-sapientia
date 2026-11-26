@@ -461,6 +461,144 @@ describe("write approval in the Zotero sidebar", function () {
       await undo(created.historyID);
       assert.deepEqual(a.getNotes(), [note.id]);
       historyButton.click();
+
+      const outsider = await paper("Unselected tagging target");
+      outsider.addTag("Private outsider tag");
+      await outsider.saveTx();
+      b.addTag("Other tag");
+      await b.saveTx();
+      const selectBoth = async () => {
+        await win.ZoteroPane.selectItems([a.id, b.id]);
+        await until(
+          () =>
+            pane.querySelector(".sap-context-title")?.textContent ===
+            "2 selected items",
+        );
+      };
+      await selectBoth();
+      start(
+        ["read_paper_tags", {}],
+        ["read_paper_tags", { itemID: b.id }],
+        ["read_paper_tags", { itemID: outsider.id }],
+        ["read_paper_notes", { itemID: a.id }],
+        proposal(
+          "add_tags",
+          { tags: ["Must remain absent"] },
+          { itemID: outsider.id },
+        ),
+        proposal("add_tags", { tags: ["Must identify a target"] }),
+      );
+      const [tags, tagsB, ...outsideScope] = await results(6);
+      assert.sameDeepMembers(value(tags).items, [
+        {
+          itemID: a.id,
+          itemKey: a.key,
+          libraryID: a.libraryID,
+          tags: a.getTags(),
+        },
+        {
+          itemID: b.id,
+          itemKey: b.key,
+          libraryID: b.libraryID,
+          tags: b.getTags(),
+        },
+      ]);
+      assert.deepEqual(value(tagsB).tags, b.getTags());
+      outsideScope.forEach((result) => assert.isTrue(result.isError));
+
+      const addSelected = batch(
+        proposal(
+          "add_tags",
+          { tags: ["Imported tag", "Distinct A", "Distinct A"] },
+          { itemID: a.id },
+        ),
+        proposal(
+          "add_tags",
+          { tags: ["Imported tag", "Distinct B"] },
+          { itemKey: b.key, libraryID: b.libraryID },
+        ),
+      );
+      const assertTagPreview = () => {
+        const rows = Array.from<HTMLElement>(
+          review().querySelectorAll<HTMLElement>(".sap-write-row"),
+        );
+        assert.lengthOf(rows, 2);
+        assert.include(rows[0].textContent, a.key);
+        assert.include(rows[1].textContent, b.key);
+        assert.deepEqual(
+          rows.map((row) =>
+            Array.from<HTMLElement, string | null>(
+              row.querySelectorAll<HTMLElement>(".sap-write-tags li"),
+              (tag) => tag.textContent,
+            ),
+          ),
+          [["Distinct A"], ["Imported tag", "Distinct B"]],
+        );
+      };
+      start(addSelected);
+      await pending();
+      assertTagPreview();
+      click("Deny");
+      assert.equal(value((await results())[0]).status, "cancelled");
+      assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
+      assert.deepEqual(b.getTags(), [{ tag: "Other tag" }]);
+
+      start(addSelected);
+      await pending();
+      assertTagPreview();
+      await select(outsider);
+      click("Approve");
+      const applied = value((await results())[0]).outcomes;
+      assert.deepEqual(
+        applied.map(({ status }: { status: string }) => status),
+        ["applied", "applied"],
+      );
+      assert.sameDeepMembers(a.getTags(), [
+        { tag: "Imported tag", type: 1 },
+        { tag: "Distinct A" },
+      ]);
+      assert.sameDeepMembers(b.getTags(), [
+        { tag: "Other tag" },
+        { tag: "Imported tag" },
+        { tag: "Distinct B" },
+      ]);
+      assert.deepEqual(outsider.getTags(), [{ tag: "Private outsider tag" }]);
+      for (const outcome of applied) await chat.writes.undo(outcome.historyID);
+      assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
+      assert.deepEqual(b.getTags(), [{ tag: "Other tag" }]);
+
+      await select(a);
+      start(
+        proposal("add_tags", {
+          tags: ["Imported tag", "Manual", "Manual", "Agent-added"],
+        }),
+      );
+      await pending();
+      assert.deepEqual(
+        Array.from<HTMLElement, string | null>(
+          review().querySelectorAll<HTMLElement>(".sap-write-tags li"),
+          (tag) => tag.textContent,
+        ),
+        ["Manual", "Agent-added"],
+      );
+      a.addTag("Manual");
+      await a.saveTx();
+      click("Approve");
+      const added = value((await results())[0]).outcomes[0];
+      await chat.writes.undo(added.historyID);
+      assert.sameDeepMembers(a.getTags(), [
+        { tag: "Imported tag", type: 1 },
+        { tag: "Manual" },
+      ]);
+
+      start(proposal("add_tags", { tags: ["Already added by user"] }));
+      await pending();
+      a.addTag("Already added by user");
+      await a.saveTx();
+      click("Approve");
+      const unchanged = value((await results())[0]).outcomes[0];
+      assert.equal(unchanged.status, "unchanged");
+      assert.notProperty(unchanged, "historyID");
     } finally {
       b.save = saveB;
       setTagDeletionAllowed(false);

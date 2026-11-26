@@ -466,10 +466,11 @@ export class ChatController {
             this.sessionId &&
             turn?.assistantId === turnId &&
             !turn.abort.signal.aborted &&
-            turn.context?.paper
+            (turn.context?.paper || turn.context?.tagItems?.length)
           ) {
             return {
               paper: turn.context.paper,
+              tagItems: turn.context.tagItems,
               readSelection: turn.context.readSelection,
               signal: turn.abort.signal,
               recordPdfRead: (pages) => this.recordPdfRead(turn, pages),
@@ -692,6 +693,7 @@ class Turn {
 
 function snapshotContext({
   paper,
+  tagItems,
   selections,
   readSelection,
 }: TurnContext): TurnContext {
@@ -705,6 +707,12 @@ function snapshotContext({
       }),
       materials: { ...paper.materials },
     },
+    ...(tagItems && {
+      tagItems: tagItems.map((item) => ({
+        ...item,
+        authors: [...item.authors],
+      })),
+    }),
     selections: selections.map((selection) => ({ ...selection })),
     ...(readSelection && { readSelection }),
   };
@@ -717,6 +725,7 @@ function promptBlocks(
 ): acp.ContentBlock[] {
   const blocks: acp.ContentBlock[] = [{ type: "text", text }];
   const paper = context?.paper;
+  const tagItems = context?.tagItems;
   if (paper) {
     const {
       itemID,
@@ -768,7 +777,13 @@ function promptBlocks(
   if (paper && toolTurnId) {
     blocks.push({
       type: "text",
-      text: `Use the zotero-sapientia tools with turnId "${toolTurnId}". For PDF reads, prefer a page or range when the relevant pages are known. Cite the exact page URI returned by the tool.${writeAllowed() ? " Use propose_zotero_write for requested updates to Zotero metadata, notes, or tags and wait for user approval." : " Zotero writes are disabled in read-only mode."}`,
+      text: `Use the zotero-sapientia tools with turnId "${toolTurnId}". For PDF reads, prefer a page or range when the relevant pages are known. Cite the exact page URI returned by the tool.${writeAllowed() ? " Use propose_zotero_write for requested updates and wait for user approval. For notes, use create_note to make a child note, or read_paper_notes then edit_note with the exact noteKey and complete replacement HTML to edit an existing note. Read current tags before proposing tag changes." : " Zotero writes are disabled in read-only mode."}`,
+    });
+  }
+  if (tagItems?.length && toolTurnId) {
+    blocks.push({
+      type: "text",
+      text: `Use the zotero-sapientia tools with turnId "${toolTurnId}". The following Zotero items were selected for tagging:\n${JSON.stringify(tagItems)}\nCall read_paper_tags without an item identifier for all selected items, or with itemID for one.${writeAllowed() ? " For requested tag changes, send one propose_zotero_write call with an operations array, using an explicit itemID per add_tags or delete_tags operation. Wait for user approval." : " Zotero writes are disabled in read-only mode."}`,
     });
   }
   const selections = context?.selections;
