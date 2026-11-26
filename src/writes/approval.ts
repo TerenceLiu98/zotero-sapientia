@@ -11,6 +11,7 @@ import type {
   WriteProposal,
   WriteResult,
 } from "./request";
+import { writeAllowed } from "./request";
 
 export function writeError(error: unknown): string {
   return redactor.redact(
@@ -50,7 +51,7 @@ export class WriteApprovals {
   }
 
   request: WriteHandoff = (proposal, signal) => {
-    if (signal.aborted)
+    if (signal.aborted || !writeAllowed())
       return Promise.resolve({ status: "cancelled", outcomes: [] });
     if (this.active) return Promise.resolve({ status: "busy", outcomes: [] });
 
@@ -73,6 +74,10 @@ export class WriteApprovals {
   async confirm(id: number) {
     const active = this.active;
     if (active?.view.id !== id || active.view.phase !== "pending") return;
+    if (!writeAllowed()) {
+      this.cancel(id);
+      return;
+    }
     const { signal } = active.cancellation;
     active.view = { ...active.view, phase: "running" };
     this.publish(active.view);
@@ -114,6 +119,10 @@ export class WriteApprovals {
       active.view = { ...active.view, stopping: true };
       this.publish(active.view);
     }
+  }
+
+  cancelActive() {
+    if (this.active) this.cancel(this.active.view.id);
   }
 
   dismiss(id: number) {

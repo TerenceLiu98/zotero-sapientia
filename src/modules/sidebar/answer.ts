@@ -3,19 +3,20 @@ import { katex } from "@mdit/plugin-katex";
 import { ParseError } from "katex";
 import MarkdownIt from "markdown-it";
 import {
+  ArrowUpRight,
   Check,
   Copy,
   FileText,
   Globe,
   RotateCcw,
-  Sparkle,
   Square,
+  X,
   type IconNode,
 } from "lucide";
 import { getString } from "../../utils/locale";
 import { h, lucideIcon } from "../ui/dom";
+import { thinkingOrb } from "./thinking-orb";
 
-const MAX_CARDS = 2;
 const PDF_LINK =
   /^zotero:\/\/open-pdf\/(?:library|groups\/\d+)\/items\/[a-z0-9]+(?:\?page=[1-9]\d*)?$/i;
 const PDF_PAGE_LINK = /^#page=([1-9]\d*)$/;
@@ -61,6 +62,7 @@ markdown.renderer.rules.link_open = (
 };
 
 interface AnswerSource {
+  index: number;
   url: string;
   title: string;
   label: string;
@@ -78,23 +80,34 @@ export interface AnswerState {
   streaming: boolean;
   question?: string;
   pdfUrl?: string;
+  paperTitle?: string;
+  pdfRead?: ReadonlyMap<string, string>;
   regenerate?: boolean;
   stopping?: boolean;
 }
 
 export function createAnswer(doc: Document, options: AnswerOptions) {
   const question = h(doc, "h3", { class: "sap-answer-question", hidden: true });
-  const sources = h(doc, "div", {
+  const summary = h(doc, "div", {
+    class: "sap-answer-source-summary",
+    hidden: true,
+  });
+  const sourceTabs = h(doc, "div", {
     class: "sap-answer-sources",
     hidden: true,
     role: "group",
     "aria-label": getString("answer-sources"),
   });
+  const preview = h(doc, "section", {
+    class: "sap-answer-source-preview",
+    hidden: true,
+    id: `sap-source-${options.id}`,
+  });
   const writing = h(
     doc,
     "div",
     { class: "sap-answer-writing", hidden: true },
-    lucideIcon(doc, Sparkle, 12),
+    thinkingOrb(doc),
     getString("answer-writing"),
   );
   const body = h(doc, "div", { class: "sap-answer-text" });
@@ -102,10 +115,12 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
     class: "sap-answer-status",
     role: "status",
   });
-  let sourceKey = "";
   let currentText: string | undefined;
   let currentPdfUrl: string | undefined;
+  let currentPaperTitle: string | undefined;
+  let currentPdfRead: ReadonlyMap<string, string> | undefined;
   let currentSources: AnswerSource[] = [];
+  let activeUrl: string | undefined;
   let currentPlainText = "";
   let copyTimer: number | undefined;
 
@@ -149,9 +164,11 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
     "section",
     { class: "sap-answer", hidden: true },
     question,
-    sources,
+    summary,
     writing,
     body,
+    sourceTabs,
+    preview,
     actions,
   );
 
@@ -181,6 +198,8 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
     streaming,
     question: prompt,
     pdfUrl,
+    paperTitle,
+    pdfRead,
     regenerate: canRegenerate,
     stopping,
   }: AnswerState) {
@@ -198,9 +217,19 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
       stop.disabled = Boolean(stopping);
     }
     actions.hidden = streaming && !stop;
-    if (currentText === text && currentPdfUrl === pdfUrl) return;
+    if (
+      currentText === text &&
+      currentPdfUrl === pdfUrl &&
+      currentPaperTitle === paperTitle &&
+      currentPdfRead === pdfRead
+    )
+      return;
+    const sourcesChanged =
+      currentPaperTitle !== paperTitle || currentPdfRead !== pdfRead;
     currentText = text;
     currentPdfUrl = pdfUrl;
+    currentPaperTitle = paperTitle;
+    currentPdfRead = pdfRead;
 
     const before = Array.from<HTMLAnchorElement>(body.querySelectorAll("a"));
     const active = before.find((link) => link === doc.activeElement);
@@ -211,7 +240,9 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
           )
           .indexOf(active)
       : -1;
-    const result = renderMarkdown(doc, text, options.id, pdfUrl);
+    const result = renderMarkdown(doc, text, preview.id, selectSource, pdfUrl);
+    const linksChanged =
+      JSON.stringify(currentSources) !== JSON.stringify(result.sources);
     currentSources = result.sources;
     currentPlainText = result.plainText;
     body.replaceChildren(result.content);
@@ -223,13 +254,171 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
       );
       matches[ordinal]?.focus({ preventScroll: true });
     }
-    const nextKey = JSON.stringify(result.sources);
-    if (sourceKey !== nextKey) {
-      sourceKey = nextKey;
-      sources.hidden = !result.sources.length;
-      sources.replaceChildren(...renderSourceCards(doc, result.sources));
+    if (linksChanged || sourcesChanged) {
+      if (!currentSources.some(({ url }) => url === activeUrl))
+        activeUrl = undefined;
+      renderSources();
     }
+    highlight();
   }
+
+  function selectSource(url?: string) {
+    activeUrl = url;
+    highlight();
+    renderPreview();
+    sourceTabs
+      .querySelector<HTMLButtonElement>('[aria-pressed="true"]')
+      ?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+        behavior: "instant",
+      });
+  }
+
+  function highlight() {
+    body.classList.toggle("sap-answer-has-source", !!activeUrl);
+    for (const block of body.querySelectorAll(".sap-answer-source-match"))
+      block.classList.remove("sap-answer-source-match");
+    for (const link of body.querySelectorAll(".sap-citation")) {
+      const active = link.getAttribute("href") === activeUrl;
+      link.setAttribute("aria-expanded", String(active));
+      if (active)
+        link
+          .closest("p, li, td, th, h1, h2, h3, h4, blockquote")
+          ?.classList.add("sap-answer-source-match");
+    }
+    for (const button of sourceTabs.querySelectorAll("button"))
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.url === activeUrl),
+      );
+  }
+
+  function renderSources() {
+    const count = currentSources.length;
+    const pages = currentPdfRead?.size ?? 0;
+    summary.hidden = !count;
+    sourceTabs.hidden = !count;
+    summary.replaceChildren(
+      h(
+        doc,
+        "span",
+        { class: "sap-source-stack", "aria-hidden": "true" },
+        ...currentSources
+          .slice(0, 3)
+          .map((source) => lucideIcon(doc, source.pdf ? FileText : Globe, 12)),
+      ),
+      getString("answer-source-count", { count }),
+      pages
+        ? ` · ${getString("answer-source-pages-read", { count: pages })}`
+        : "",
+    );
+    const focused = sourceTabs.contains(doc.activeElement)
+      ? (doc.activeElement as HTMLButtonElement).dataset.url
+      : undefined;
+    sourceTabs.replaceChildren(
+      ...currentSources.map((source) => {
+        const button = h(
+          doc,
+          "button",
+          {
+            type: "button",
+            class: "sap-answer-source",
+            title: source.title,
+            "aria-controls": preview.id,
+            "aria-pressed": "false",
+            "data-url": source.url,
+            click: () => selectSource(source.url),
+          },
+          lucideIcon(doc, source.pdf ? FileText : Globe, 12),
+          h(doc, "span", {}, source.label),
+          h(
+            doc,
+            "span",
+            { class: "sap-answer-source-index" },
+            String(source.index),
+          ),
+        );
+        return button;
+      }),
+    );
+    if (focused)
+      [...sourceTabs.querySelectorAll("button")]
+        .find((button) => button.dataset.url === focused)
+        ?.focus({ preventScroll: true });
+    renderPreview();
+  }
+
+  function renderPreview() {
+    const source = currentSources.find(({ url }) => url === activeUrl);
+    preview.hidden = !source;
+    if (!source) {
+      preview.replaceChildren();
+      return;
+    }
+    const quote = currentPdfRead?.get(source.url);
+    const title =
+      source.pdf && source.url.split("?")[0] === currentPdfUrl
+        ? currentPaperTitle || source.title
+        : source.title;
+    const close = () => {
+      selectSource();
+      [...sourceTabs.querySelectorAll("button")]
+        .find((button) => button.dataset.url === source.url)
+        ?.focus({ preventScroll: true });
+    };
+    const open = h(
+      doc,
+      "a",
+      {
+        class: "sap-answer-action sap-source-open",
+        href: source.url,
+        click: (event: Event) => {
+          event.preventDefault();
+          if (source.pdf)
+            Zotero.getMainWindow()?.ZoteroPane.loadURI(source.url);
+          else Zotero.launchURL(source.url);
+        },
+      },
+      lucideIcon(doc, ArrowUpRight, 13),
+      getString("answer-open-source"),
+    );
+    preview.replaceChildren(
+      h(
+        doc,
+        "div",
+        { class: "sap-source-preview-header" },
+        lucideIcon(doc, source.pdf ? FileText : Globe, 12),
+        h(doc, "span", { class: "sap-source-preview-origin" }, source.label),
+        h(doc, "span", { class: "sap-citation-index" }, String(source.index)),
+        action(getString("answer-close-source"), X, close),
+      ),
+      h(doc, "strong", {}, title),
+      ...(quote ? [h(doc, "blockquote", {}, quote)] : []),
+      h(
+        doc,
+        "div",
+        { class: "sap-source-preview-actions" },
+        open,
+        quote
+          ? action(
+              getString("answer-copy-quote"),
+              Copy,
+              () => {
+                Zotero.Utilities.Internal.copyTextToClipboard(quote);
+                clipboardStatus.textContent = getString("status-answer-copied");
+              },
+              true,
+            )
+          : null,
+      ),
+    );
+  }
+
+  preview.addEventListener("keydown", (event) => {
+    if ((event as KeyboardEvent).key === "Escape")
+      preview.querySelector<HTMLButtonElement>("button")?.click();
+  });
 
   return {
     element,
@@ -243,7 +432,8 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
 function renderMarkdown(
   doc: Document,
   text: string,
-  id: string,
+  previewId: string,
+  selectSource: (url: string) => void,
   pdfUrl?: string,
 ) {
   const template = h(doc, "template");
@@ -268,7 +458,7 @@ function renderMarkdown(
   const anchors = Array.from<HTMLAnchorElement>(
     content.querySelectorAll("a[data-sap-href]"),
   );
-  anchors.forEach((link, index) => {
+  anchors.forEach((link) => {
     const href = link.getAttribute("data-sap-href") ?? "";
     const url = resolveSourceUrl(href, pdfUrl);
     link.removeAttribute("data-sap-href");
@@ -279,30 +469,36 @@ function renderMarkdown(
       return;
     }
     const source =
-      sources.get(url) ?? describeSource(url, link.textContent?.trim() ?? "");
+      sources.get(url) ??
+      describeSource(url, link.textContent?.trim() ?? "", sources.size + 1);
     sources.set(url, source);
-    connectSource(link, source);
-    link.className = "sap-citation";
-
-    const previewId = `sap-source-${id}-${index}`;
-    const preview = h(
+    const marker = h(
       doc,
-      "span",
-      { class: "sap-citation-preview", id: previewId, role: "tooltip" },
-      h(doc, "strong", {}, source.title),
-      h(doc, "span", {}, source.label),
+      "a",
+      {
+        class: "sap-citation sap-citation-index",
+        href: source.url,
+        title: source.title,
+        "aria-controls": previewId,
+        "aria-expanded": "false",
+        "aria-label": `${source.index}. ${source.title}`,
+        click: (event: Event) => {
+          event.preventDefault();
+          selectSource(source.url);
+        },
+      },
+      String(source.index),
     );
-    const chip = h(doc, "span", { class: "sap-citation-wrap" });
-    link.setAttribute("aria-describedby", previewId);
-    link.addEventListener("keydown", (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      chip.dataset.dismissed = "true";
-      event.stopPropagation();
-    });
-    link.addEventListener("blur", () => delete chip.dataset.dismissed);
-    chip.addEventListener("pointerleave", () => delete chip.dataset.dismissed);
-    link.replaceWith(chip);
-    chip.append(link, preview);
+    const label = link.textContent?.trim() ?? "";
+    if (/^(?:(?:p(?:age)?\.?\s*)?\d+|第\s*\d+\s*页)$/iu.test(label))
+      link.replaceWith(marker);
+    else {
+      link.replaceWith(
+        ...Array.from(link.childNodes).filter((child) => child !== null),
+        " ",
+        marker,
+      );
+    }
   });
   return { content, plainText, sources: Array.from(sources.values()) };
 }
@@ -322,14 +518,18 @@ function resolveSourceUrl(href: string, pdfUrl?: string): string | undefined {
   return url.href;
 }
 
-function describeSource(url: string, text: string): AnswerSource {
+function describeSource(
+  url: string,
+  text: string,
+  index: number,
+): AnswerSource {
   const pdf = PDF_LINK.test(url);
   if (pdf) {
     const page = /[?&]page=(\d+)(?:&|$)/.exec(url)?.[1];
     const label = page
       ? getString("answer-source-page", { page })
       : getString("answer-pdf-source");
-    return { url, title: text || label, label, pdf };
+    return { url, title: text || label, label, pdf, index };
   }
   let host: string;
   try {
@@ -337,69 +537,5 @@ function describeSource(url: string, text: string): AnswerSource {
   } catch {
     host = url;
   }
-  return { url, title: text || host, label: host, pdf };
-}
-
-function connectSource(link: HTMLAnchorElement, source: AnswerSource): void {
-  link.setAttribute("href", source.url);
-  link.addEventListener("click", (event: Event) => {
-    event.preventDefault();
-    if (source.pdf) Zotero.getMainWindow()?.ZoteroPane.loadURI(source.url);
-    else Zotero.launchURL(source.url);
-  });
-}
-
-function renderSourceCards(
-  doc: Document,
-  sources: AnswerSource[],
-): HTMLElement[] {
-  const card = (source: AnswerSource, index: number) => {
-    const link = h(
-      doc,
-      "a",
-      { class: "sap-answer-source", title: source.title },
-      h(
-        doc,
-        "span",
-        { class: "sap-answer-source-label" },
-        lucideIcon(doc, source.pdf ? FileText : Globe, 12),
-        h(doc, "span", { class: "sap-answer-source-origin" }, source.label),
-        h(
-          doc,
-          "span",
-          { class: "sap-answer-source-index", "aria-hidden": "true" },
-          String(index + 1),
-        ),
-      ),
-      h(doc, "span", { class: "sap-answer-source-title" }, source.title),
-    );
-    connectSource(link, source);
-    return link;
-  };
-  const row = h(
-    doc,
-    "div",
-    { class: "sap-answer-source-row" },
-    ...sources.slice(0, MAX_CARDS).map(card),
-  );
-  const remaining = sources.slice(MAX_CARDS);
-  if (!remaining.length) return [row];
-  const overflow = h(
-    doc,
-    "details",
-    { class: "sap-answer-source-more" },
-    h(
-      doc,
-      "summary",
-      { "aria-label": getString("answer-sources") },
-      `+${remaining.length}`,
-    ),
-    h(
-      doc,
-      "div",
-      { class: "sap-answer-source-extra sap-answer-source-row" },
-      ...remaining.map((source, index) => card(source, index + MAX_CARDS)),
-    ),
-  );
-  return [row, overflow];
+  return { url, title: text || host, label: host, pdf, index };
 }

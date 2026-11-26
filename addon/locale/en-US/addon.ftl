@@ -83,21 +83,35 @@ prefs-error-command = Enter a command.
 prefs-error-args = Close every quote and remove any trailing backslash.
 prefs-error-env = Variable names use letters, digits and underscores, and cannot repeat.
 prefs-error-cwd = Enter a valid directory path.
-prefs-read-scope = Agent read access for the current paper
-prefs-read-metadata = Paper metadata
-prefs-read-pdf = PDF text
-prefs-read-selection = Selected PDF text
-prefs-read-annotations = PDF annotations and highlights
-prefs-read-notes = Child notes
-prefs-read-tags = Item tags
-prefs-write-scope = Agent write access
-prefs-allow-tag-deletion = Allow tag deletion with approval
 write-review = Review Zotero changes
 write-create-note = Create child note
 write-edit-note = Edit child note
+write-update-metadata = Update bibliographic metadata
+write-field-creators = Creators
+write-field-item-type = Item type
+write-field-before = Previous value
+write-field-after = Proposed value
+write-field-empty = Empty
 write-add-tags = Add tags
 write-delete-tags = Remove tags
-write-confirm = Confirm
+write-confirm = Approve
+write-deny = Deny
+write-details = Change details
+write-field-item = Item
+write-field-note = Note
+write-field-content = Content
+write-field-tags = Tags
+write-change-count = { $count ->
+  [one] { $count } change
+ *[other] { $count } changes
+}
+write-risk-low = Low risk
+write-risk-medium = Medium risk
+write-applying = Applying
+write-result-approved = Approved
+write-result-denied = Denied
+write-result-errors = With errors
+write-result-stopped = Stopped
 write-cancel = Cancel
 write-dismiss = Dismiss
 write-history = Write history
@@ -113,3 +127,23 @@ write-outcome-unchanged = No change needed
 write-outcome-failed = Failed
 write-outcome-cancelled = Not processed
 write-outcome-waiting = Waiting
+permission-title = Agent write access
+permission-approval = Request approval
+permission-read-only = Read only
+permission-heading = How should Zotero writes be approved?
+permission-learn-more = Learn more
+permission-approval-scope = Metadata, notes, and tags · Manual approval
+permission-read-only-scope = Current paper · No writes
+permission-tag-deletion = Allow tag deletion
+permission-tag-deletion-scope = Tags · Manual approval
+answer-source-count = { $count ->
+  [one] { $count } source
+ *[other] { $count } sources
+}
+answer-source-pages-read = { $count ->
+  [one] { $count } page read
+ *[other] { $count } pages read
+}
+answer-open-source = Open source
+answer-close-source = Close source preview
+answer-copy-quote = Copy quote

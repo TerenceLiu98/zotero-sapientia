@@ -12,13 +12,17 @@ For another ACP agent, open **Settings → Zotero ACP Agent** and save an agent 
 
 ## Paper access
 
-Open **Settings → Zotero ACP Agent** to control which parts of the current paper the agent can read. Metadata, PDF text, the current PDF selection, annotations, child notes, and tags are enabled by default. The plugin binds each request to the paper selected when the prompt was sent. The agent can request a physical PDF page, an inclusive range, or the full attachment. A scanned page without a text layer requires OCR in the agent's toolset.
+The agent can read the current paper's metadata, PDF text, current PDF selection, annotations, child notes, and tags. The plugin binds each request to the paper selected when the prompt was sent. The agent can request a physical PDF page, an inclusive range, or the full attachment. A scanned page without a text layer requires OCR in the agent's toolset.
 
 The plugin registers its loopback Model Context Protocol (MCP) endpoint when the agent advertises HTTP MCP over ACP. The local Codex configuration used for verification had no Zotero MCP tools, so the endpoint covers those reads directly with Zotero's bundled document worker.
 
 ## Approve and undo writes
 
-When an agent proposes a child note or tag change, the sidebar shows each target, operation, and payload. Confirm runs the reviewed changes in order. Cancel stops pending operations and lets any operation already in progress finish. The sidebar reports each outcome and keeps successful changes available under **Write history**. Undo restores the original note or tag state when the affected content still matches the recorded result. Tag deletion requires an additional opt-in under **Settings → Zotero ACP Agent**.
+When reading an attached PDF, the agent can propose updates to the parent Zotero item's type, bibliographic fields, and creators. The approval card shows the old and new values, including fields cleared when switching types. Approved updates are available in **Write history**.
+
+Pass `itemType` to `read_paper_metadata` to look up the fields and creator roles supported by a target type. To propose the conversion, use `propose_zotero_write` with `operation: "update_metadata"` and `change: { "itemType": "journalArticle" }`. The same `change` can include fields and creators for the target type.
+
+In **Request approval** mode, the sidebar shows each proposed target, operation, and payload. Confirm runs the reviewed changes in order. Cancel stops pending operations and lets any operation already in progress finish. The sidebar reports each outcome and keeps successful changes available under **Write history**. Undo restores the original note or tag state when the affected content still matches the recorded result. Choose **Read only** to disable agent write proposals. Tag deletion requires a separate opt-in in the same permissions menu.
 
 The approval card follows the public interaction design of the [affectUI Approval Card](https://www.affectui.com/components/approval-card) and uses native Zotero DOM and styles.
 

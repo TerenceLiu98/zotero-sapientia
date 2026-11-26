@@ -3,19 +3,25 @@ import {
   itemIdentifier,
   prepareWrite,
   PROPOSE_ZOTERO_WRITE,
+  writeAllowed,
   writeInputSchema,
   writeSchema,
   type WriteHandoff,
 } from "../writes/request";
 import { writeError } from "../writes/approval";
 import {
+  bibliographicItemTypes,
+  metadataFieldNames,
+  metadataItemType,
+} from "../writes/metadata";
+import {
   describeAttachment,
   paperAttachments,
+  paperMetadata,
   pdfURI,
   type PaperContext,
   type SelectedText,
 } from "./paper";
-import { readAllowed, type ReadMaterial } from "./read-scope";
 
 export const READ_CURRENT_PAPER = "read_current_paper";
 
@@ -39,6 +45,7 @@ export interface ToolTurn {
   paper: PaperContext;
   readSelection?: () => SelectedText | undefined;
   signal: AbortSignal;
+  recordPdfRead?(pages: readonly { uri: string; text: string }[]): void;
 }
 
 export type ResolveTurn = (id: string) => ToolTurn | undefined;
@@ -47,8 +54,11 @@ const readers = {
   read_paper_metadata: {
     material: "metadata",
     description:
-      "Read the current Zotero paper's metadata and PDF attachments.",
-    schema: z.strictObject(target),
+      "Read the current Zotero paper's metadata and PDF attachments. Pass itemType to look up editable fields and creator roles for a proposed type.",
+    schema: z.strictObject({
+      ...target,
+      itemType: metadataItemType.optional(),
+    }),
   },
   [READ_CURRENT_PAPER]: {
     material: "pdf",
@@ -79,7 +89,12 @@ const readers = {
   },
 } satisfies Record<
   string,
-  { material: ReadMaterial; description: string; schema: z.ZodType }
+  {
+    material:
+      "metadata" | "pdf" | "selection" | "annotations" | "notes" | "tags";
+    description: string;
+    schema: z.ZodType;
+  }
 >;
 
 export function listPaperTools() {
@@ -91,21 +106,23 @@ export function listPaperTools() {
       annotations: { readOnlyHint: true, openWorldHint: false },
     }),
   );
-  return [
-    ...reads,
-    {
-      name: PROPOSE_ZOTERO_WRITE,
-      description:
-        "Request user approval to create or edit child notes, or add or remove tags. Supply a single operation or an ordered batch. Wait for the result before reporting any changes.",
-      inputSchema: writeInputSchema,
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
-    },
-  ];
+  return writeAllowed()
+    ? [
+        ...reads,
+        {
+          name: PROPOSE_ZOTERO_WRITE,
+          description:
+            'Request user approval to update Zotero bibliographic metadata, create or edit child notes, or add or remove tags. For a type change, use operation "update_metadata" with change { "itemType": "journalArticle" }. Use read_paper_metadata to find supported types, fields and creator roles. Wait for the result before reporting changes.',
+          inputSchema: writeInputSchema,
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: true,
+            idempotentHint: false,
+            openWorldHint: false,
+          },
+        },
+      ]
+    : reads;
 }
 
 function toolText(text: string) {
@@ -231,7 +248,7 @@ async function readPdf(
     uri: `${uri}?page=${number}`,
     text: texts[index],
   }));
-  return toolResult({
+  return {
     attachmentID: attachment.id,
     attachmentKey: attachment.key,
     url: uri,
@@ -239,7 +256,7 @@ async function readPdf(
     extractedPages: pages.length,
     text: texts.join("\n\n"),
     pages,
-  });
+  };
 }
 
 export async function callPaperTool(
@@ -249,6 +266,7 @@ export async function callPaperTool(
   handoff: WriteHandoff,
 ) {
   if (name === PROPOSE_ZOTERO_WRITE) {
+    if (!writeAllowed()) return toolError("Zotero is in read-only mode.");
     const parsed = writeSchema.safeParse(input);
     if (!parsed.success)
       return toolError(
@@ -261,6 +279,7 @@ export async function callPaperTool(
       );
     try {
       const proposal = await prepareWrite(parsed.data, turn.paper);
+      if (!writeAllowed()) return toolError("Zotero is in read-only mode.");
       const result = await handoff(proposal, turn.signal);
       return toolResult({
         status: result?.status ?? "cancelled",
@@ -286,8 +305,6 @@ export async function callPaperTool(
     );
   const args = parsed.data;
   const { material } = reader;
-  if (!readAllowed(material))
-    return toolError("This material is disabled in Zotero read settings.");
   const turn = active(args.turnId);
   const item = turn && currentItem(turn, args);
   if (!turn || !item)
@@ -300,17 +317,45 @@ export async function callPaperTool(
   };
 
   switch (material) {
-    case "metadata":
+    case "metadata": {
+      const metadata = paperMetadata(item);
+      const types = item.isRegularItem() ? bibliographicItemTypes() : [];
+      const requestedType = "itemType" in args ? args.itemType : undefined;
+      const selectedType =
+        requestedType === undefined
+          ? types.find(({ id }) => id === item.itemTypeID)
+          : types.find(({ name }) => name === requestedType);
+      if (requestedType && !selectedType)
+        return toolError(
+          `'${requestedType}' is not a Zotero bibliographic item type.`,
+        );
+      const fields = item.isRegularItem()
+        ? metadataFieldNames(item.itemTypeID)
+        : [];
       return toolResult({
-        ...identity,
-        title: paper.title,
-        authors: paper.authors,
-        abstract: paper.abstract || null,
-        doi: paper.doi || null,
-        year: paper.year || null,
+        ...metadata,
+        abstract: metadata.abstract || null,
+        doi: metadata.doi || null,
+        year: metadata.year || null,
+        itemType: Zotero.ItemTypes.getName(item.itemTypeID),
+        editableItemTypes: types.map(({ name }) => name),
+        editableItemType: selectedType?.name ?? null,
+        editableFields: selectedType ? metadataFieldNames(selectedType.id) : [],
+        fields: Object.fromEntries(
+          fields
+            .map((field): [string, string] => [field, item.getField(field)])
+            .filter(([, value]) => value),
+        ),
+        creators: item.getCreatorsJSON(),
+        creatorTypes: selectedType
+          ? Zotero.CreatorTypes.getTypesForItemType(selectedType.id).map(
+              ({ name }) => name,
+            )
+          : [],
         attachment: paper.attachment ?? null,
         attachments: paperAttachments(item).map(describeAttachment),
       });
+    }
     case "notes":
       return toolResult({
         ...identity,
@@ -376,14 +421,17 @@ export async function callPaperTool(
         const target = current && currentItem(current, args);
         return (
           current?.signal === turn.signal &&
-          readAllowed("pdf") &&
           !!target &&
           currentAttachment(target, paper, args)?.id === attachment.id
         );
       };
       try {
         const result = await readPdf(attachment, args, authorized);
-        if (authorized()) return result;
+        if (authorized()) {
+          if (!("pages" in result)) return result;
+          turn.recordPdfRead?.(result.pages);
+          return toolResult(result);
+        }
       } catch {
         if (authorized())
           return toolError(

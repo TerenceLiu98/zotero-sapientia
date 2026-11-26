@@ -2,6 +2,7 @@ import { Check, ChevronDown, Circle, LoaderCircle, X } from "lucide";
 import type { AssistantBlock, ChatMessage } from "../../chat/controller";
 import { getString } from "../../utils/locale";
 import { h, lucideIcon } from "../ui/dom";
+import { thinkingOrb } from "./thinking-orb";
 
 type AssistantMessage = Extract<ChatMessage, { role: "assistant" }>;
 type Step = Exclude<AssistantBlock, { type: "text" }>;
@@ -9,12 +10,7 @@ type Step = Exclude<AssistantBlock, { type: "text" }>;
 export function createThinkingState(doc: Document) {
   const window = doc.defaultView!;
   const statusIcon = h(doc, "span", { class: "sap-thinking-icon" });
-  const pixels = h(
-    doc,
-    "span",
-    { class: "sap-thinking-pixels", "aria-hidden": "true" },
-    ...Array.from({ length: 9 }, () => h(doc, "span")),
-  );
+  const orb = thinkingOrb(doc);
   const label = h(doc, "span", { class: "sap-thinking-label" });
   const elapsed = h(doc, "span", { class: "sap-thinking-time" });
   const list = h(doc, "ol", {
@@ -79,7 +75,7 @@ export function createThinkingState(doc: Document) {
     );
     if (element.dataset.running !== String(running)) {
       element.dataset.running = String(running);
-      statusIcon.replaceChildren(running ? pixels : lucideIcon(doc, Check, 14));
+      statusIcon.replaceChildren(running ? orb : lucideIcon(doc, Check, 14));
     }
     steps.forEach((step, index) => {
       const mounted = rows[index];

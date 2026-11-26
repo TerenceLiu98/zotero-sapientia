@@ -168,6 +168,7 @@ async function callZoteroTool(server, name, args) {
   const catalog = await request(2, "tools/list");
   if (!catalog?.tools.some(({ name }) => name === "read_current_paper"))
     throw new Error("MCP did not list the PDF reader");
+  if (name === "tools/list") return catalog;
   return request(3, "tools/call", {
     name,
     arguments: args,

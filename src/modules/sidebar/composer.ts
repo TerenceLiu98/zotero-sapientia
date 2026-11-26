@@ -7,12 +7,14 @@ import type { ChatState } from "../../chat/controller";
 import { getString } from "../../utils/locale";
 import { h, iconButton, setIconButton } from "../ui/dom";
 import { createComposerPicker } from "./composer-picker";
+import { createComposerPermissions } from "./composer-permissions";
 
 interface ComposerActions {
   send(text: string): Promise<boolean>;
   stop(): Promise<void>;
   selectAgent(id: string): Promise<void>;
   selectModel(id: string): Promise<void>;
+  cancelWrites(): void;
 }
 
 export function createComposer(
@@ -30,6 +32,7 @@ export function createComposer(
   const picker = createComposerPicker(doc, ({ kind, id }) => {
     void switchSelection(kind, id);
   });
+  const permissions = createComposerPermissions(doc, actions.cancelWrites);
   const send = iconButton(
     doc,
     getString("action-send"),
@@ -50,7 +53,14 @@ export function createComposer(
       { class: "sap-composer-card" },
       attachments,
       input,
-      h(doc, "div", { class: "sap-composer-toolbar" }, picker.element, send),
+      h(
+        doc,
+        "div",
+        { class: "sap-composer-toolbar" },
+        permissions.element,
+        picker.element,
+        send,
+      ),
     ),
   );
 
@@ -175,6 +185,7 @@ export function createComposer(
   return {
     element,
     input,
+    closePermissions: permissions.close,
     render(nextState: ChatState) {
       state = nextState;
       renderControls();
@@ -183,6 +194,7 @@ export function createComposer(
       if (disposed) return;
       disposed = true;
       picker.destroy();
+      permissions.destroy();
       Zotero.Prefs.unregisterObserver(profileObserver);
       Zotero.Prefs.unregisterObserver(defaultObserver);
     },
