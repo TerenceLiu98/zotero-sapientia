@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import process from "node:process";
+import { URL } from "node:url";
 
 const [xpi, destination] = process.argv.slice(2);
 const repository = process.env.GITHUB_REPOSITORY;
