@@ -41,6 +41,8 @@ On Zotero 10.0.9 for macOS with Codex CLI 0.172.0 and Codex ACP 2.12.0, the live
 
 GitHub Actions runs lint, type checking, the isolated Zotero fixture suite, and the production build for every PR and update to `master`. The run's `sapientia` artifact contains the XPI and its checksum.
 
-1. Update `version` and `releaseTag` in `package.json` and synchronize the package lock. Merge the version change into `master` and wait for CI.
+1. Update `version` and `releaseTag` in `package.json` and synchronize the package lock. Keep `zoteroVersion` only when the XPI needs a distinct version string. Merge the version change into `master` and wait for CI.
 2. Create and push the exact `releaseTag` on the tested `master` commit. The tag run builds, tests, and publishes the XPI and its SHA-256 checksum. An npm prerelease version publishes as a GitHub prerelease and updates the beta feed. A stable version updates the stable feed.
 3. Download `sapientia.xpi` and `sapientia.xpi.sha256` from the release, check the files with `shasum -a 256 -c sapientia.xpi.sha256`, and install the XPI through Zotero's **Tools > Plugins** menu.
+
+To switch from a beta to `v0.1`, install the stable XPI manually. Zotero sorts `v0.1` below the beta versions.
