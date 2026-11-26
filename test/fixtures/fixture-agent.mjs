@@ -219,6 +219,7 @@ async function runTurn(id, session, prompt) {
         `\n$$\n\n\\[\n${longMath}\n\\]\n\n`,
         "[p. 3](zotero://open-pdf/library/items/",
         "ABCD1234?page=3)\n\n```text\n$code$\n```\n\n",
+        "| Paper | Scope | Citation | Evidence | Method | Result | Summary | Notes |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| Categorization | Quantitative | Bibliographic | Experimental | Longitudinal | Generalizable | Reproducibility | Documentation |\n\n",
         "Price: $5 and $10. Invalid: $\\unknownCommand$.\n\n$$",
       ];
       if (command === "math-stream") {

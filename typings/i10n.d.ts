@@ -49,7 +49,6 @@ export type FluentMessageId =
   | 'permission-approval'
   | 'permission-approval-scope'
   | 'permission-heading'
-  | 'permission-learn-more'
   | 'permission-read-only'
   | 'permission-read-only-scope'
   | 'permission-tag-deletion'

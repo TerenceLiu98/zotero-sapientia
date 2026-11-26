@@ -1,4 +1,5 @@
-import { h, icon, ICON } from "./dom";
+import { Check, ChevronDown } from "lucide";
+import { h, lucideIcon } from "./dom";
 
 export interface ComboboxOption {
   value: string;
@@ -70,7 +71,7 @@ export function createCombobox(
       doc,
       "span",
       { class: "sap-combobox-chevron" },
-      icon(doc, ICON.chevronDown),
+      lucideIcon(doc, ChevronDown),
     ),
   );
   const element = h(
@@ -119,15 +120,18 @@ export function createCombobox(
 
   function position(): void {
     const rect = field.getBoundingClientRect();
-    const below = doc.defaultView!.innerHeight - rect.bottom;
-    list.style.left = `${rect.left}px`;
-    list.style.width = `${Math.max(rect.width, MIN_LIST_WIDTH_PX)}px`;
+    const { innerWidth, innerHeight } = doc.defaultView!;
+    const below = innerHeight - rect.bottom;
+    const width = Math.min(innerWidth, Math.max(rect.width, MIN_LIST_WIDTH_PX));
+    list.style.left = `${Math.max(0, Math.min(rect.left, innerWidth - width))}px`;
+    list.style.width = `${width}px`;
     if (below >= MIN_LIST_HEIGHT_PX || below >= rect.top) {
       list.style.top = `${rect.bottom + LIST_GAP_PX}px`;
+      list.style.bottom = "auto";
       list.style.maxHeight = `${Math.min(MAX_LIST_HEIGHT_PX, below - LIST_GAP_PX)}px`;
     } else {
       list.style.top = "auto";
-      list.style.bottom = `${doc.defaultView!.innerHeight - rect.top + LIST_GAP_PX}px`;
+      list.style.bottom = `${innerHeight - rect.top + LIST_GAP_PX}px`;
       list.style.maxHeight = `${Math.min(MAX_LIST_HEIGHT_PX, rect.top - LIST_GAP_PX)}px`;
     }
   }
@@ -154,7 +158,7 @@ export function createCombobox(
         choice.hint
           ? h(doc, "span", { class: "sap-combobox-option-hint" }, choice.hint)
           : null,
-        h(doc, "span", { class: "sap-combobox-check" }, icon(doc, ICON.check)),
+        h(doc, "span", { class: "sap-combobox-check" }, lucideIcon(doc, Check)),
       ),
     );
     rows.forEach((row, index) => {
@@ -338,10 +342,10 @@ export const COMBOBOX_STYLES = `
   position: relative;
   display: flex;
   align-items: center;
-  min-height: 28px;
+  min-height: var(--sap-control-size);
   padding: 0 6px 0 8px;
-  border-radius: var(--sap-radius, 7px);
-  background: var(--color-control);
+  border-radius: var(--sap-control-radius);
+  background: var(--material-background);
   box-shadow: 0 0 0 1px var(--color-border);
   transition: box-shadow 120ms ease;
   cursor: text;
@@ -350,7 +354,7 @@ export const COMBOBOX_STYLES = `
   box-shadow: 0 0 0 1px var(--fill-tertiary);
 }
 .sap-combobox-field:focus-within {
-  box-shadow: 0 0 0 1px var(--fill-secondary);
+  box-shadow: 0 0 0 1px var(--color-focus-border);
 }
 .sap-combobox-input {
   flex: 1;
@@ -383,36 +387,33 @@ export const COMBOBOX_STYLES = `
   inset: auto;
   margin: 0;
   padding: 4px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--color-menu, var(--color-control));
-  box-shadow: 0 0 0 0.5px var(--color-border), 0 8px 24px -6px rgba(0, 0, 0, 0.14), 0 2px 6px -2px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--sap-border);
+  border-radius: var(--sap-menu-radius);
+  background: var(--material-button);
+  box-shadow: var(--sap-menu-shadow);
   color: var(--fill-primary);
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
 }
 .sap-combobox-option {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
+  min-height: var(--sap-control-size);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--sap-control-radius);
   font-size: 13px;
   line-height: 20px;
   cursor: pointer;
   user-select: none;
 }
 .sap-combobox-option.is-active {
-  background: var(--fill-quinary);
+  background: var(--sap-hover);
 }
 .sap-combobox-option-label {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .sap-combobox-option[aria-selected="true"] .sap-combobox-option-label {
   font-weight: 500;
@@ -420,10 +421,8 @@ export const COMBOBOX_STYLES = `
 .sap-combobox-option-hint {
   flex: 2;
   min-width: 0;
-  overflow: hidden;
+  overflow-wrap: anywhere;
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--fill-secondary);
 }
 .sap-combobox-check {
