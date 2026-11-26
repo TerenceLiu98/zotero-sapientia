@@ -9,9 +9,9 @@ export const COMPOSER_STYLES = `
   min-width: 0;
   max-width: 680px;
   margin-bottom: 12px;
-  border: 1px solid var(--color-border50, var(--color-border));
+  border: 1px solid var(--sap-border);
   border-radius: 20px;
-  background: var(--color-control);
+  background: var(--material-button);
 }
 .sap-composer-card {
   display: flex;
@@ -29,7 +29,6 @@ export const COMPOSER_STYLES = `
   padding-bottom: 2px;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
-  scrollbar-width: thin;
   cursor: auto;
 }
 .sap-context-quote {
@@ -41,7 +40,7 @@ export const COMPOSER_STYLES = `
   box-sizing: border-box;
   height: 122px;
   padding: 7px 8px 5px;
-  border: 1px solid var(--color-border50, var(--color-border));
+  border: 1px solid var(--sap-border);
   border-radius: 15px;
   background: var(--fill-quinary);
 }
@@ -126,14 +125,14 @@ export const COMPOSER_STYLES = `
   padding: 0 10px;
   margin: 0;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--sap-control-radius);
   background: transparent;
   color: var(--fill-primary);
   font: inherit;
   font-size: 14px;
   cursor: pointer;
 }
-.sap-permission-trigger:is(:hover, [aria-expanded="true"]) { background: var(--fill-quinary); }
+.sap-permission-trigger:is(:hover, [aria-expanded="true"]) { background: var(--sap-hover); }
 .sap-permission-icon { display: inline-flex; color: var(--fill-secondary); }
 @container (max-width: 320px) {
   .sap-permission-trigger-label { display: none; }
@@ -145,35 +144,13 @@ export const COMPOSER_STYLES = `
   margin: 0;
   padding: 4px;
   overflow: auto;
-  border: 1px solid var(--color-border50, var(--color-border));
-  border-radius: 14px;
-  background: var(--color-control);
+  border: 1px solid var(--sap-border);
+  border-radius: var(--sap-menu-radius);
+  background: var(--material-button);
   color: var(--fill-primary);
-  box-shadow: 0 12px 25px -10px rgb(0 0 0 / .22), 0 2px 5px rgb(0 0 0 / .04);
+  box-shadow: var(--sap-menu-shadow);
   cursor: default;
 }
-.sap-permission-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 10px 3px;
-  min-height: 32px;
-  color: var(--fill-secondary);
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-.sap-permission-panel button.sap-permission-help {
-  flex: none;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--fill-secondary);
-  font: inherit;
-  cursor: pointer;
-}
-.sap-permission-panel button.sap-permission-help:hover { text-decoration: underline; }
 .sap-permission-panel button.sap-permission-option {
   appearance: none;
   display: grid;
@@ -186,7 +163,7 @@ export const COMPOSER_STYLES = `
   padding: 7px 10px;
   margin: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--sap-control-radius);
   background: transparent;
   color: var(--fill-primary);
   font: inherit;
@@ -195,7 +172,8 @@ export const COMPOSER_STYLES = `
   overflow-wrap: anywhere;
   cursor: pointer;
 }
-.sap-permission-panel button.sap-permission-option:is(:hover, :focus-visible):enabled { background: var(--fill-quinary); }
+.sap-permission-panel button.sap-permission-option:is(:hover, :focus-visible):enabled { background: var(--sap-hover); }
+.sap-permission-panel button.sap-permission-option[aria-checked="true"] { background: var(--sap-hover); }
 .sap-permission-panel button.sap-permission-option:disabled { opacity: .48; cursor: default; }
 .sap-permission-option-icon, .sap-permission-check { display: flex; padding-top: 3px; justify-content: center; }
 .sap-permission-option-icon, .sap-permission-option-scope { color: var(--fill-secondary); }
@@ -221,7 +199,7 @@ export const COMPOSER_STYLES = `
   margin: 0;
   padding: 6px 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--sap-control-radius);
   background: transparent;
   color: var(--fill-primary);
   font-size: 15px;
@@ -231,7 +209,7 @@ export const COMPOSER_STYLES = `
 }
 .sap-composer-picker-trigger:hover:enabled,
 .sap-composer-picker-trigger[aria-expanded="true"] {
-  background: var(--fill-quinary);
+  background: var(--sap-hover);
 }
 .sap-composer-picker-trigger:disabled {
   color: var(--fill-tertiary);
@@ -245,17 +223,11 @@ export const COMPOSER_STYLES = `
 .sap-composer-picker-trigger[aria-expanded="true"] .sap-composer-picker-chevron {
   transform: rotate(180deg);
 }
-.sap-composer-picker-label {
+.sap-composer-picker-label,
+.sap-composer-picker-option-label {
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: normal;
-  word-break: normal;
-}
-.sap-composer-picker-option-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .sap-composer-picker-list {
   position: fixed;
@@ -263,14 +235,13 @@ export const COMPOSER_STYLES = `
   box-sizing: border-box;
   margin: 0;
   padding: 4px;
-  border: 1px solid var(--color-border50, var(--color-border));
-  border-radius: 12px;
-  background: var(--color-control);
+  border: 1px solid var(--sap-border);
+  border-radius: var(--sap-menu-radius);
+  background: var(--material-button);
   color: var(--fill-primary);
-  box-shadow: 0 14px 34px -13px rgba(0, 0, 0, .25), 0 2px 5px rgba(0, 0, 0, .06);
+  box-shadow: var(--sap-menu-shadow);
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
 }
 .sap-composer-picker-group + .sap-composer-picker-group {
   margin-top: 4px;
@@ -284,7 +255,7 @@ export const COMPOSER_STYLES = `
   gap: 12px;
   min-height: 38px;
   padding: 4px 10px;
-  border-radius: 7px;
+  border-radius: var(--sap-control-radius);
   font-size: 14px;
   line-height: 20px;
   cursor: pointer;
@@ -292,7 +263,7 @@ export const COMPOSER_STYLES = `
 }
 .sap-composer-picker-option.is-active,
 .sap-composer-picker-option:hover {
-  background: var(--fill-quinary);
+  background: var(--sap-hover);
 }
 .sap-composer-picker-option[aria-disabled="true"] { cursor: default; }
 .sap-composer-picker-icon,
@@ -313,9 +284,9 @@ export const COMPOSER_STYLES = `
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--sap-control-radius);
   background: var(--fill-primary);
-  color: var(--color-control);
+  color: var(--color-background);
   cursor: pointer;
 }
 .sap-chat-composer button.sap-composer-send:hover:enabled {
@@ -325,9 +296,5 @@ export const COMPOSER_STYLES = `
   background: var(--fill-quinary);
   color: var(--fill-tertiary);
   cursor: default;
-}
-.sap-chat-composer button:focus-visible {
-  outline: 2px solid var(--color-focus-border);
-  outline-offset: 1px;
 }
 `;

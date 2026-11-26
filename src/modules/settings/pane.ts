@@ -1,3 +1,4 @@
+import { X } from "lucide";
 import { config } from "../../../package.json";
 import { discoverAgentProfiles } from "../../agents/discovery";
 import {
@@ -18,7 +19,8 @@ import {
 } from "../../agents/store";
 import { getString, type MessageId } from "../../utils/locale";
 import { COMBOBOX_STYLES, createCombobox } from "../ui/combobox";
-import { h, icon, ICON } from "../ui/dom";
+import { h, lucideIcon } from "../ui/dom";
+import { SURFACE_STYLES } from "../ui/styles";
 import { SETTINGS_STYLES } from "./styles";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
@@ -59,7 +61,7 @@ export function renderSettingsPane(
   container: Element,
 ): () => void {
   const style = doc.createElementNS(HTML_NS, "style");
-  style.textContent = `${SETTINGS_STYLES}\n${COMBOBOX_STYLES}`;
+  style.textContent = SURFACE_STYLES + SETTINGS_STYLES + COMBOBOX_STYLES;
 
   let profiles = loadProfiles();
   let detected: AgentProfile[] = [];
@@ -210,7 +212,7 @@ export function renderSettingsPane(
         type: "button",
         "data-action": "drop-variable",
       },
-      icon(doc, ICON.close),
+      lucideIcon(doc, X),
     );
     const row = h(
       doc,
@@ -339,26 +341,24 @@ export function renderSettingsPane(
             h(
               doc,
               "div",
-              {
-                class: "sap-prefs-row",
-                role: "button",
-                tabindex: "0",
-                "data-action": "edit",
-                "data-profile": profile.id,
-                click: () => startEditing(profile.id),
-                keydown: (event: Event) => {
-                  if ((event as KeyboardEvent).key === "Enter") {
-                    startEditing(profile.id);
-                  }
-                },
-              },
-              h(doc, "span", { class: "sap-prefs-row-name" }, profile.name),
-              // Arguments are left out, because they may carry credentials.
+              { class: "sap-prefs-row", "data-profile": profile.id },
               h(
                 doc,
-                "span",
-                { class: "sap-prefs-row-command" },
-                profile.command,
+                "button",
+                {
+                  type: "button",
+                  class: "sap-prefs-row-edit",
+                  "data-action": "edit",
+                  click: () => startEditing(profile.id),
+                },
+                h(doc, "span", { class: "sap-prefs-row-name" }, profile.name),
+                // Arguments can carry credentials.
+                h(
+                  doc,
+                  "span",
+                  { class: "sap-prefs-row-command" },
+                  profile.command,
+                ),
               ),
               h(
                 doc,
@@ -370,12 +370,9 @@ export function renderSettingsPane(
                   "aria-label": getString("prefs-agent-delete", {
                     name: profile.name,
                   }),
-                  click: (event: Event) => {
-                    event.stopPropagation();
-                    remove(profile);
-                  },
+                  click: () => remove(profile),
                 },
-                icon(doc, ICON.close),
+                lucideIcon(doc, X),
               ),
             ),
           )

@@ -1,7 +1,9 @@
+import { SURFACE_STYLES } from "../ui/styles";
 import { ANSWER_STYLES } from "./answer-styles";
 import { COMPOSER_STYLES } from "./composer-styles";
 
 export const CHAT_STYLES =
+  SURFACE_STYLES +
   `
 .sap-chat {
   display: flex;
@@ -10,9 +12,6 @@ export const CHAT_STYLES =
   min-height: 0;
   min-width: 0;
   height: 100%;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--fill-primary);
 }
 .sap-chat, .sap-chat * { box-sizing: border-box; font-family: inherit; }
 .sap-chat [hidden] { display: none !important; }
@@ -80,14 +79,13 @@ export const CHAT_STYLES =
   margin: 0;
   padding: 16px 14px 12px;
   overflow-y: auto;
-  scrollbar-width: thin;
   overflow-wrap: anywhere;
 }
 .sap-msg-user {
   align-self: flex-end;
   max-width: 88%;
   padding: 7px 11px;
-  border-radius: 8px;
+  border-radius: var(--sap-control-radius);
   background: var(--fill-quinary);
   white-space: pre-wrap;
 }
@@ -120,11 +118,11 @@ export const CHAT_STYLES =
   inset: auto;
   margin: 0;
   padding: 4px 9px;
-  border: 1px solid var(--color-border50, var(--color-border));
-  border-radius: 8px;
-  background: var(--color-control);
+  border: 1px solid var(--sap-border);
+  border-radius: var(--sap-control-radius);
+  background: var(--material-button);
   color: var(--fill-primary);
-  box-shadow: 0 2px 10px rgb(0 0 0 / .12);
+  box-shadow: var(--sap-menu-shadow);
   font-size: 12px;
 }
 
@@ -208,31 +206,27 @@ export const CHAT_STYLES =
 .sap-chat-button {
   flex: none;
   min-width: 52px;
-  height: 26px;
+  min-height: var(--sap-control-size);
   padding: 0 10px;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-control);
+  border-radius: var(--sap-control-radius);
+  background: var(--material-button);
   color: var(--fill-primary);
   font-size: inherit;
 }
-.sap-chat-button:hover:enabled { background: var(--fill-quinary); }
-.sap-chat-button:enabled:active { background: var(--fill-quarternary); }
+.sap-chat-button:hover:enabled { background: var(--sap-hover); }
+.sap-chat-button:enabled:active { background: var(--sap-pressed); }
 .sap-chat-button:disabled { color: var(--fill-tertiary); }
-.sap-chat-button:focus-visible, .sap-thinking-header:focus-visible {
-  outline: 2px solid var(--color-focus-border);
-  outline-offset: 1px;
-}
 .sap-icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 27px;
-  min-width: 27px;
-  height: 27px;
+  width: var(--sap-control-size);
+  min-width: var(--sap-control-size);
+  height: var(--sap-control-size);
   padding: 0;
   border-color: transparent;
-  border-radius: 6px;
+  border-radius: var(--sap-control-radius);
   background: transparent;
   color: var(--fill-secondary);
 }
@@ -246,7 +240,6 @@ export const CHAT_STYLES =
   overflow-wrap: anywhere;
 }
 .sap-write-review {
-  --sap-write-divider: var(--color-border50, var(--color-border));
   flex: none;
   align-self: center;
   width: calc(100% - 24px);
@@ -254,9 +247,9 @@ export const CHAT_STYLES =
   min-width: 0;
   margin: 4px 0 9px;
   padding: 14px;
-  border: 1px solid var(--sap-write-divider);
+  border: 1px solid var(--sap-border);
   border-radius: 16px;
-  background: var(--color-control);
+  background: var(--material-button);
   color: var(--fill-primary);
   line-height: 1.4;
   overflow-wrap: anywhere;
@@ -268,8 +261,8 @@ export const CHAT_STYLES =
   place-items: center;
   inline-size: 32px;
   block-size: 32px;
-  border: 1px solid var(--sap-write-divider);
-  border-radius: 8px;
+  border: 1px solid var(--sap-border);
+  border-radius: var(--sap-control-radius);
 }
 .sap-write-heading { flex: 1; min-inline-size: 0; }
 .sap-write-heading h3 { margin: 0; font-size: 13px; line-height: 1.45; font-weight: 600; }
@@ -295,13 +288,13 @@ export const CHAT_STYLES =
 .sap-write-review > .sap-write-list {
   margin-block-start: 12px;
   padding-block-start: 10px;
-  border-block-start: 1px solid var(--sap-write-divider);
+  border-block-start: 1px solid var(--sap-border);
 }
 .sap-write-review .sap-write-row { padding: 0 0 9px; border: 0; }
 .sap-write-review .sap-write-row:last-child { padding-bottom: 0; }
 .sap-write-review .sap-write-row + .sap-write-row {
   padding-block-start: 9px;
-  border-block-start: 1px solid var(--sap-write-divider);
+  border-block-start: 1px solid var(--sap-border);
 }
 .sap-write-operation { display: block; margin-bottom: 4px; font-weight: 600; }
 .sap-write-fields {
@@ -350,7 +343,7 @@ export const CHAT_STYLES =
   gap: 5px;
   margin-block-start: 12px;
   padding-block-start: 11px;
-  border-block-start: 1px solid var(--sap-write-divider);
+  border-block-start: 1px solid var(--sap-border);
 }
 .sap-write-actions .sap-write-status { margin-inline-end: auto; }
 .sap-write-review button.sap-write-action {
@@ -359,16 +352,16 @@ export const CHAT_STYLES =
   padding: 0 10px;
   margin: 0;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--sap-control-radius);
   background: transparent;
   color: var(--fill-primary);
   font-size: 12px;
   cursor: pointer;
 }
-.sap-write-review button.sap-write-action:hover:enabled { background: var(--fill-quinary); }
+.sap-write-review button.sap-write-action:hover:enabled { background: var(--sap-hover); }
 .sap-write-review button.sap-write-action.sap-write-approve {
   background: var(--fill-primary);
-  color: var(--color-control);
+  color: var(--color-background);
 }
 .sap-write-review button.sap-write-action.sap-write-approve:hover:enabled {
   background: var(--fill-secondary);
