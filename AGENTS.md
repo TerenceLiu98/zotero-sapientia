@@ -1,5 +1,15 @@
 # Repository Guidelines
 
+1. 不保留向后兼容：过时东西直接删，别写迁移脚本和回退方案。
+2. 极简主义：选满足当前需求的最简实现，绝不搞“预防性抽象”; UI 上只保留必须的问题, 不要在界面上进行功能描述。
+3. 小步快跑：先跑通最小端到端版本，别为了臆想的未来去拆当前能跑的架构。
+4. 模块化：组件保持独立，关注点分离清楚。
+5. 别造轮子：优先用成熟的、有人维护的第三方库。
+6. 先查再写：动手前先翻翻项目里已有的依赖，别想当然瞎引包。
+7. 架构要有远见：绝不接受“先凑合，以后再说”的临时屎山。
+8. 抄作业：先看成熟产品怎么解决，用验证过的模式，别从零发明。
+9. 多用 subagent 和 worktree 并行完成可以并行完成的任务
+
 ## Project Structure
 
 The root `README.md` identifies the project. Start with `docs/PRD.md` for the draft requirements of Sapientia. The proposed desktop plugin supplies Zotero context to a user-selected agent through the Agent Client Protocol (ACP). The agent analyzes that context and generates content. The plugin applies changes, such as creating notes or adding tags, through the Zotero API.
