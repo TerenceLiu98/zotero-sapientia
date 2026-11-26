@@ -14,79 +14,89 @@ export const ANSWER_STYLES = `
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
-.sap-answer-sources {
-  display: flex;
-  align-items: stretch;
-  gap: 5px;
-  min-width: 0;
-  position: relative;
-}
-.sap-answer-source-row {
-  display: grid;
-  flex: 1;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 5px;
-  min-width: 0;
-}
-.sap-answer-source {
-  display: grid;
-  align-content: start;
-  gap: 5px;
-  min-width: 0;
-  padding: 7px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  color: var(--fill-primary);
-  text-decoration: none;
-  line-height: 1.4;
-}
-.sap-answer-source:hover, .sap-answer-source-more summary:hover {
-  background: var(--fill-quinary);
-}
-.sap-answer-source-label {
+.sap-answer-source-summary {
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-width: 0;
+  gap: 6px;
   color: var(--fill-secondary);
-  font-size: .87em;
+  font-size: 11px;
 }
-.sap-answer-source-label svg, .sap-answer-source-index { flex: none; }
-.sap-answer-source-index { margin-inline-start: auto; color: var(--fill-tertiary); }
-.sap-answer-source-origin {
+.sap-source-stack { display: inline-flex; padding-inline-start: 3px; }
+.sap-source-stack svg {
+  box-sizing: content-box;
+  margin-inline-start: -3px;
+  padding: 2px;
+  border: 1px solid var(--material-sidepane);
+  border-radius: 4px;
+  background: var(--fill-quinary);
+}
+.sap-answer-sources {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sap-answer button.sap-answer-source {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  max-width: 80%;
+  min-width: 0;
+  height: auto;
+  min-height: 25px;
+  padding: 3px 6px;
+  margin: 0;
+  border: 1px solid var(--color-border50, var(--color-border));
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fill-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.sap-answer button.sap-answer-source:is(:hover, [aria-pressed="true"]) {
+  background: var(--fill-quinary);
+  color: var(--fill-primary);
+}
+.sap-answer-source span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sap-answer-source svg, .sap-answer-source-index { flex: none; }
+.sap-answer-source-index { color: var(--fill-tertiary); }
+.sap-answer-source-preview {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border50, var(--color-border));
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.sap-source-preview-header, .sap-source-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fill-secondary);
+  font-size: 11px;
+}
+.sap-source-preview-header svg { flex: none; }
+.sap-source-preview-origin {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sap-answer-source-title {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow-wrap: anywhere;
+.sap-answer-source-preview blockquote {
+  padding-inline-start: 7px;
+  margin: 0;
+  border-inline-start: 2px solid var(--color-border);
+  color: var(--fill-secondary);
+  font-size: 12px;
 }
-.sap-answer-source-more summary {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  box-sizing: border-box;
-  height: 100%;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  cursor: pointer;
-  list-style: none;
-  font-weight: 600;
-}
-.sap-answer-source-more summary::-webkit-details-marker { display: none; }
-.sap-answer-source-extra {
-  position: absolute;
-  z-index: 2;
-  inset: calc(100% + 4px) 0 auto;
-  padding: 5px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--material-sidepane);
-}
+.sap-source-preview-actions { flex-wrap: wrap; }
+.sap-source-preview-actions .sap-source-open { border-color: var(--color-border); text-decoration: none; }
 .sap-answer-writing {
   display: flex;
   align-items: center;
@@ -124,38 +134,28 @@ export const ANSWER_STYLES = `
   overflow-wrap: normal;
   scrollbar-width: thin;
 }
-.sap-answer .sap-citation {
-  display: inline;
-  padding: 1px 5px;
-  border: 1px solid var(--color-border);
+.sap-answer .sap-citation-index {
+  display: inline-block;
+  min-width: 1.35em;
+  padding: 0 3px;
   border-radius: 4px;
   background: var(--fill-quinary);
   color: var(--fill-secondary);
-  font-size: .86em;
+  font-size: .8em;
   font-weight: 500;
+  text-align: center;
   text-decoration: none;
-  box-decoration-break: clone;
+  vertical-align: .12em;
 }
-.sap-answer .sap-citation:hover { color: var(--fill-primary); text-decoration: none; }
-.sap-citation-preview {
-  display: none;
-  position: absolute;
-  z-index: 3;
-  inset-inline-start: 0;
-  inset-inline-end: auto;
-  max-inline-size: min(210px, 100%);
-  margin-block-start: 1.6em;
-  padding: 6px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--material-sidepane);
-  color: var(--fill-secondary);
-  pointer-events: none;
-  font-size: .89em;
+.sap-answer .sap-citation:is(:hover, [aria-expanded="true"]) {
+  background: var(--fill-quarternary);
+  color: var(--fill-primary);
 }
-.sap-citation-preview strong { color: var(--fill-primary); }
-.sap-citation-wrap:not([data-dismissed]):is(:hover, :focus-within) .sap-citation-preview {
-  display: inline-grid;
+.sap-answer .sap-answer-has-source { color: var(--fill-secondary); }
+.sap-answer-source-match {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
+  color: var(--fill-primary);
 }
 .sap-answer-controls {
   display: flex;

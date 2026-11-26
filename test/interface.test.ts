@@ -159,6 +159,7 @@ describe("the sidebar", function () {
     assert.equal(ui.status(), "Working…");
     assert.equal(ui.sendStop().getAttribute("aria-label"), "Stop");
     const thinking = ui.thinking();
+    assert.isNotNull(thinking.querySelector(".sap-thinking-orb"));
     assert.isTrue(thinking.open);
     await until(() =>
       thinking.querySelector(".sap-thinking-time")?.textContent?.includes("1"),
@@ -273,6 +274,21 @@ describe("the sidebar", function () {
       "zotero://open-pdf/library/items/ABCD1234?page=3",
     );
     assert.lengthOf(view.querySelectorAll(".sap-answer-text a"), 1);
+    const citation = view.querySelector<HTMLAnchorElement>(".sap-citation")!;
+    assert.equal(citation.textContent, "1");
+    citation.click();
+    const source = view.querySelector<HTMLElement>(
+      ".sap-answer-source-preview",
+    )!;
+    assert.isFalse(source.hidden);
+    assert.isNotNull(citation.closest(".sap-answer-source-match"));
+    source
+      .querySelector<HTMLButtonElement>(
+        'button[aria-label="Close source preview"]',
+      )!
+      .click();
+    assert.isTrue(source.hidden);
+    assert.isNull(citation.closest(".sap-answer-source-match"));
     assert.isNull(view.querySelector(".sap-answer-text img"));
     assert.isNotNull(view.querySelector('button[aria-label="Copy answer"]'));
   });

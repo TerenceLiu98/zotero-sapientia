@@ -32,6 +32,7 @@ export type ChatMessage =
       role: "assistant";
       blocks: AssistantBlock[];
       context?: TurnContext;
+      pdfRead?: ReadonlyMap<string, string>;
       startedAt?: number;
       thinkingEndedAt?: number;
       /** How the turn ended, once it has. */

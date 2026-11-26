@@ -1,8 +1,8 @@
 import { assert } from "chai";
+import { config } from "../package.json";
 import { saveProfiles } from "../src/agents/store";
 import { ChatController } from "../src/chat/controller";
 import { createPaperContext } from "../src/context/paper";
-import { READ_MATERIALS, setReadAllowed } from "../src/context/read-scope";
 import { CHAT_PANE_ID, CHAT_TOGGLE_ID } from "../src/modules/sidebar/section";
 import { mainWindow, makeAgent, plugin, reset, until, use } from "./helpers";
 
@@ -217,6 +217,7 @@ describe("paper context in the Zotero reader", function () {
       assert.exists(second);
       assert.exists(third);
       third!.click();
+      summary.querySelector<HTMLAnchorElement>(".sap-source-open")!.click();
       await until(
         () => reader._internalReader._state.primaryViewStats.pageIndex === 2,
       );
@@ -335,7 +336,13 @@ describe("paper context in the Zotero reader", function () {
       );
     }
 
+    const legacyReadScope = `${config.prefsPrefix}.readScope`;
     try {
+      Zotero.Prefs.set(
+        legacyReadScope,
+        "metadata,pdf,selection,annotations,notes,tags",
+        true,
+      );
       await open(pdf);
       const reader = Zotero.Reader.getByTabID(win.Zotero_Tabs.selectedID)!;
       setSelection(reader, "first marker", 2);
@@ -420,26 +427,13 @@ describe("paper context in the Zotero reader", function () {
           ),
         )
       ).forEach(denied);
-      for (const material of READ_MATERIALS) setReadAllowed(material, false);
-      for (const material of READ_MATERIALS) {
-        setReadAllowed(material, true);
-        (
-          await run(
-            names
-              .filter((_, i) => READ_MATERIALS[i] !== material)
-              .map((name) => [name]),
-          )
-        ).forEach(denied);
-        setReadAllowed(material, false);
-      }
       const prompts = (await agent.received()).filter(
         ({ method }) => method === "session/prompt",
       );
-      assert.notInclude(
+      assert.include(
         JSON.stringify(prompts.at(-1)!.params.prompt),
         "Scoped paper",
       );
-      READ_MATERIALS.forEach((material) => setReadAllowed(material, true));
 
       const [directWrite] = await run([
         [
@@ -484,7 +478,7 @@ describe("paper context in the Zotero reader", function () {
         year: null,
       });
     } finally {
-      READ_MATERIALS.forEach((material) => setReadAllowed(material, true));
+      Zotero.Prefs.clear(legacyReadScope, true);
       tracker.dispose();
       await chat.disconnect();
     }
@@ -668,12 +662,28 @@ describe("paper context in the Zotero reader", function () {
         "Source citation",
       );
       link.click();
+      const preview = pane.querySelector<HTMLElement>(
+        ".sap-answer-source-preview",
+      )!;
+      assert.include(preview.textContent, "alpha page two");
+      assert.include(
+        pane.querySelector(".sap-answer-source-summary")?.textContent,
+        "2 pages read",
+      );
+      assert.isNotNull(link.closest(".sap-answer-source-match"));
+      preview.querySelector<HTMLAnchorElement>(".sap-source-open")!.click();
       await until(
         () =>
           reader()?.itemID === a.id &&
           reader()?._internalReader?._state?.primaryViewStats?.pageIndex === 1,
       );
       secondLink.click();
+      assert.equal(
+        preview.querySelector(".sap-source-open")?.getAttribute("href"),
+        `zotero://open-pdf/library/items/${alternate.key}?page=2`,
+      );
+      assert.isNull(preview.querySelector("blockquote"));
+      preview.querySelector<HTMLAnchorElement>(".sap-source-open")!.click();
       await until(
         () =>
           reader()?.itemID === alternate.id &&
@@ -764,6 +774,153 @@ describe("paper context in the Zotero reader", function () {
         ".sap-msg-user .sap-sent-selection-text",
       );
       assert.equal(history[2].textContent, "Earlier result: Source citation");
+
+      stage = "approve metadata changes from an open PDF";
+      const parent = b.parentItem!;
+      const originalCreators = parent.getCreatorsJSON();
+      const revisedCreators = [
+        { creatorType: "author", firstName: "Grace", lastName: "Hopper" },
+        { creatorType: "author", name: "Research Group" },
+        { creatorType: "author", firstName: "Prince", lastName: "" },
+      ];
+      const revisedFields = {
+        title: "Paper B (published)",
+        DOI: "10.1000/published",
+        date: "2025-03-14",
+        publicationTitle: "Fixture Journal",
+      };
+      submit(
+        pane,
+        `zotero-tools:${JSON.stringify([
+          [
+            "propose_zotero_write",
+            {
+              operation: "update_metadata",
+              change: { fields: revisedFields, creators: revisedCreators },
+            },
+          ],
+          ["read_paper_metadata", {}],
+        ])}`,
+      );
+      const review = pane.querySelector<HTMLElement>(".sap-write-review")!;
+      await until(
+        () =>
+          !review.hidden &&
+          review.querySelector(".sap-write-metadata-diff ins"),
+      );
+      assert.equal(
+        review.querySelector("h3")?.textContent,
+        "Update bibliographic metadata",
+      );
+      assert.include(
+        review.querySelector(".sap-write-metadata-diff del")?.textContent,
+        "Paper B",
+      );
+      assert.include(
+        review.querySelector(".sap-write-metadata-diff ins")?.textContent,
+        revisedFields.title,
+      );
+      assert.equal(parent.getField("title"), "Paper B");
+      await open(a);
+      review.querySelector<HTMLButtonElement>(".sap-write-approve")!.click();
+      await until(() => chat.getState().execution === "idle");
+      const [updated, after] = (await agent.received())
+        .filter(({ event }) => event === "zotero-tool")
+        .map(({ result }) => {
+          assert.isNotTrue(result.isError, result.content[0].text);
+          return JSON.parse(result.content[0].text);
+        });
+      assert.equal(updated.outcomes[0].status, "applied");
+      assert.equal(after.itemKey, parent.key);
+      assert.equal(after.title, revisedFields.title);
+      assert.deepInclude(after.fields, {
+        title: revisedFields.title,
+        DOI: revisedFields.DOI,
+        publicationTitle: revisedFields.publicationTitle,
+      });
+      assert.include(after.editableFields, "DOI");
+      assert.deepEqual(after.creators, revisedCreators);
+      assert.equal(parent.getField("year"), "2025");
+      assert.equal(a.parentItem!.getField("title"), aTitle);
+      assert.equal(b.parentID, parent.id);
+
+      stage = "undo bibliographic metadata";
+      await chat.writes.undo(updated.outcomes[0].historyID);
+      assert.equal(parent.getField("title"), "Paper B");
+      assert.equal(parent.getField("DOI"), "10.1000/beta");
+      assert.equal(parent.getField("year"), "2024");
+      assert.equal(parent.getField("publicationTitle"), "");
+      assert.deepEqual(parent.getCreatorsJSON(), originalCreators);
+
+      stage = "convert preprint metadata with approval and undo";
+      parent.setType(Zotero.ItemTypes.getID("preprint") as number);
+      parent.setField("repository", "Fixture preprint server");
+      parent.setField("archiveID", "Fixture preprint ID");
+      await parent.saveTx();
+      await open(b);
+      const proposal = {
+        operation: "update_metadata",
+        change: {
+          itemType: "journalArticle",
+          fields: { publicationTitle: "Fixture Journal", volume: "8" },
+        },
+      };
+      submit(
+        pane,
+        `zotero-tools:${JSON.stringify([
+          ["tools/list", {}],
+          ["read_paper_metadata", { itemType: "journalArticle" }],
+          ["propose_zotero_write", proposal],
+          ["read_paper_metadata", {}],
+        ])}`,
+      );
+      await until(() => !review.hidden && review.dataset.phase === "pending");
+      assert.include(review.textContent, "Item type");
+      assert.include(review.textContent, "Fixture preprint server");
+      assert.include(review.textContent, "Fixture Journal");
+      assert.equal(Zotero.ItemTypes.getName(parent.itemTypeID), "preprint");
+      review.querySelector<HTMLButtonElement>(".sap-write-approve")!.click();
+      await until(() => chat.getState().execution === "idle");
+      const [catalog, before, conversion, convertedMetadata] = (
+        await agent.received()
+      )
+        .filter(({ event }) => event === "zotero-tool")
+        .slice(-4)
+        .map(({ name, result }) => {
+          if (name === "tools/list") return result;
+          assert.isNotTrue(result.isError, result.content[0].text);
+          return JSON.parse(result.content[0].text);
+        });
+      const tool = catalog.tools.find(
+        ({ name }: { name: string }) => name === "propose_zotero_write",
+      );
+      assert.equal(
+        tool.inputSchema.properties.change.properties.itemType.type,
+        "string",
+      );
+      assert.equal(before.itemType, "preprint");
+      assert.equal(before.editableItemType, "journalArticle");
+      assert.includeMembers(before.editableFields, [
+        "publicationTitle",
+        "volume",
+      ]);
+      assert.include(before.creatorTypes, "author");
+      assert.equal(before.fields.repository, "Fixture preprint server");
+      assert.equal(conversion.outcomes[0].status, "applied");
+      assert.equal(convertedMetadata.itemType, "journalArticle");
+      assert.include(convertedMetadata.editableItemTypes, "preprint");
+      assert.deepInclude(convertedMetadata.fields, {
+        publicationTitle: "Fixture Journal",
+        volume: "8",
+      });
+      assert.equal(b.parentID, parent.id);
+      await chat.writes.undo(conversion.outcomes[0].historyID);
+      assert.equal(Zotero.ItemTypes.getName(parent.itemTypeID), "preprint");
+      assert.equal(parent.getField("repository"), "Fixture preprint server");
+      assert.equal(parent.getField("archiveID"), "Fixture preprint ID");
+      assert.equal(parent.getField("publicationTitle"), "");
+      assert.deepEqual(parent.getCreatorsJSON(), originalCreators);
+      assert.equal(b.parentID, parent.id);
     } catch (error) {
       const stats = reader()?._internalReader?._state?.primaryViewStats;
       throw new Error(

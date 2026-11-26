@@ -104,16 +104,7 @@ function selectionFrom(
   };
 }
 
-function paperFrom(
-  item: Zotero.Item,
-  attachment: PdfAttachment | undefined,
-  reader: Reader | undefined,
-): PaperContext {
-  const state = reader && readerState(reader);
-  const stats =
-    reader?._internalReader?._lastViewPrimary === false
-      ? state?.secondaryViewStats
-      : state?.primaryViewStats;
+export function paperMetadata(item: Zotero.Item) {
   const primaryCreator = Zotero.CreatorTypes.getPrimaryIDForType(
     item.itemTypeID,
   );
@@ -133,6 +124,21 @@ function paperFrom(
     abstract: item.getField("abstractNote"),
     doi: item.getField("DOI"),
     year: year === "0000" ? "" : year,
+  };
+}
+
+function paperFrom(
+  item: Zotero.Item,
+  attachment: PdfAttachment | undefined,
+  reader: Reader | undefined,
+): PaperContext {
+  const state = reader && readerState(reader);
+  const stats =
+    reader?._internalReader?._lastViewPrimary === false
+      ? state?.secondaryViewStats
+      : state?.primaryViewStats;
+  return {
+    ...paperMetadata(item),
     attachment: attachment && {
       ...describeAttachment(attachment),
       pageIndex: stats?.pageIndex,

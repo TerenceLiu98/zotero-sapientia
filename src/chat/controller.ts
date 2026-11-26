@@ -13,9 +13,8 @@ import { AgentConnection, type AgentEvent } from "../acp/connection";
 import { modelsFromConfig, type SessionModels } from "../acp/models";
 import { READ_CURRENT_PAPER } from "../context/paper-tools";
 import { WriteApprovals } from "../writes/approval";
-import type { WriteHandoff } from "../writes/request";
+import { writeAllowed, type WriteHandoff } from "../writes/request";
 import { startPaperTools } from "../context/tool-server";
-import { READ_MATERIALS, readAllowed } from "../context/read-scope";
 import { UserError } from "../utils/errors";
 import { logError, redactor } from "../utils/log";
 import { foldUpdate, type ChatMessage, type TurnContext } from "./transcript";
@@ -473,6 +472,7 @@ export class ChatController {
               paper: turn.context.paper,
               readSelection: turn.context.readSelection,
               signal: turn.abort.signal,
+              recordPdfRead: (pages) => this.recordPdfRead(turn, pages),
             };
           }
         }, this.writeHandoff ?? this.writes.request);
@@ -591,6 +591,25 @@ export class ChatController {
     });
   }
 
+  private recordPdfRead(
+    turn: Turn,
+    pages: readonly { uri: string; text: string }[],
+  ) {
+    if (this.turn !== turn || turn.abort.signal.aborted) return;
+    const messages = this.state.messages;
+    const last = messages.at(-1);
+    if (last?.role !== "assistant" || last.id !== turn.assistantId) return;
+    const pdfRead = new Map(last.pdfRead);
+    for (const { uri, text } of pages) {
+      const excerpt = text.replace(/\s+/g, " ").trim();
+      pdfRead.set(
+        uri,
+        excerpt.length > 420 ? excerpt.slice(0, 419) + "…" : excerpt,
+      );
+    }
+    this.update({ messages: [...messages.slice(0, -1), { ...last, pdfRead }] });
+  }
+
   /** Reports a failure that ended the conversation, and cleans up behind it. */
   private fail(error: unknown): false {
     const failure = toFailure(error);
@@ -698,7 +717,7 @@ function promptBlocks(
 ): acp.ContentBlock[] {
   const blocks: acp.ContentBlock[] = [{ type: "text", text }];
   const paper = context?.paper;
-  if (paper && readAllowed("metadata")) {
+  if (paper) {
     const {
       itemID,
       itemKey,
@@ -712,7 +731,7 @@ function promptBlocks(
       attachments,
     } = paper;
     const pdfTool =
-      attachment && readAllowed("pdf") && toolTurnId
+      attachment && toolTurnId
         ? { name: READ_CURRENT_PAPER, turnId: toolTurnId }
         : undefined;
     blocks.push({
@@ -749,12 +768,10 @@ function promptBlocks(
   if (paper && toolTurnId) {
     blocks.push({
       type: "text",
-      text: `Use the zotero-sapientia tools with turnId "${toolTurnId}". ${READ_MATERIALS.some(readAllowed) ? "For permitted PDF reads, prefer a page or range when the relevant pages are known. Cite the exact page URI returned by the tool. " : ""}Use propose_zotero_write for requested note or tag changes and wait for user approval.`,
+      text: `Use the zotero-sapientia tools with turnId "${toolTurnId}". For PDF reads, prefer a page or range when the relevant pages are known. Cite the exact page URI returned by the tool.${writeAllowed() ? " Use propose_zotero_write for requested updates to Zotero metadata, notes, or tags and wait for user approval." : " Zotero writes are disabled in read-only mode."}`,
     });
   }
-  const selections = context?.selections.filter(
-    (selection) => "answerId" in selection || readAllowed("selection"),
-  );
+  const selections = context?.selections;
   if (selections?.length) {
     blocks.push({
       type: "text",
@@ -766,7 +783,7 @@ function promptBlocks(
           const { text, itemTitle, pageIndex, pageLabel, uri } = selection;
           return {
             text,
-            title: readAllowed("metadata") ? itemTitle : undefined,
+            title: itemTitle,
             page: pageIndex === undefined ? undefined : pageIndex + 1,
             pageLabel,
             uri,

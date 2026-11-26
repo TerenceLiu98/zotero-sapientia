@@ -152,18 +152,35 @@ export const CHAT_STYLES =
 .sap-thinking-time { color: var(--fill-tertiary); font-variant-numeric: tabular-nums; }
 .sap-thinking-chevron { margin-inline-start: 1px; opacity: .65; }
 .sap-thinking[open] .sap-thinking-chevron { transform: rotate(180deg); }
-.sap-thinking-pixels { display: grid; grid-template-columns: repeat(3, 3px); gap: 1px; }
-.sap-thinking-pixels span {
-  width: 3px;
-  height: 3px;
-  border-radius: .6px;
-  background: var(--accent-blue);
-  opacity: .35;
-  animation: sap-chat-pulse 1.2s ease-in-out infinite alternate;
+.sap-thinking-orb {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--accent-blue);
+  animation: sap-orb-turn 6s linear infinite;
 }
-.sap-thinking-pixels span:nth-child(3n+1) { animation-delay: .15s; opacity: .8; }
-.sap-thinking-pixels span:nth-child(3n+2) { animation-delay: .4s; opacity: .55; }
-.sap-thinking-pixels span:nth-child(n+7) { animation-delay: .7s; }
+.sap-thinking-orb > span {
+  position: absolute;
+  width: 1.4px;
+  height: 1.4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: var(--depth);
+  transform: translate(-50%, -50%);
+  animation: sap-orb-pulse 1.8s ease-in-out infinite alternate;
+}
+@keyframes sap-orb-turn {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(90deg) scaleX(.86); }
+  50% { transform: rotate(180deg); }
+  75% { transform: rotate(270deg) scaleX(.86); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes sap-orb-pulse {
+  to { opacity: calc(var(--depth) * .5); transform: translate(-50%, -50%) scale(.62); }
+}
 .sap-thinking-steps {
   display: grid;
   gap: 8px;
@@ -185,7 +202,7 @@ export const CHAT_STYLES =
 .sap-thinking-step[data-status="in_progress"] .sap-thinking-step-icon { color: var(--accent-blue); }
 .sap-thinking-step[data-status="failed"] .sap-thinking-step-icon { color: var(--accent-red); }
 @media (prefers-reduced-motion: reduce) {
-  .sap-thinking-pixels span, .sap-chat .sap-chat-dot { animation: none; }
+  .sap-thinking-orb, .sap-thinking-orb > span, .sap-chat .sap-chat-dot { animation: none; }
 }
 
 .sap-chat-button {
@@ -219,7 +236,7 @@ export const CHAT_STYLES =
   background: transparent;
   color: var(--fill-secondary);
 }
-.sap-write-review, .sap-write-history {
+.sap-write-history {
   flex: none;
   min-width: 0;
   margin: 6px 10px;
@@ -228,7 +245,77 @@ export const CHAT_STYLES =
   border-radius: 8px;
   overflow-wrap: anywhere;
 }
-.sap-write-review h3 { margin: 0 0 5px; font-size: inherit; }
+.sap-write-review {
+  --sap-write-divider: var(--color-border50, var(--color-border));
+  flex: none;
+  align-self: center;
+  width: calc(100% - 24px);
+  max-width: 460px;
+  min-width: 0;
+  margin: 4px 0 9px;
+  padding: 14px;
+  border: 1px solid var(--sap-write-divider);
+  border-radius: 16px;
+  background: var(--color-control);
+  color: var(--fill-primary);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.sap-write-header { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.sap-write-symbol {
+  display: grid;
+  flex: 0 0 32px;
+  place-items: center;
+  inline-size: 32px;
+  block-size: 32px;
+  border: 1px solid var(--sap-write-divider);
+  border-radius: 8px;
+}
+.sap-write-heading { flex: 1; min-inline-size: 0; }
+.sap-write-heading h3 { margin: 0; font-size: 13px; line-height: 1.45; font-weight: 600; }
+.sap-write-subtitle { margin: 2px 0 0; color: var(--fill-secondary); font-size: 12px; }
+.sap-write-badge {
+  flex: none;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--fill-quinary);
+  color: var(--fill-secondary);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.sap-write-badge[data-treatment="medium"] {
+  background: light-dark(#faf2dc, #40371e);
+  color: light-dark(#755100, #f4ca6a);
+}
+.sap-write-badge[data-treatment="approved"] {
+  background: color-mix(in srgb, var(--accent-green) 14%, transparent);
+  color: var(--fill-primary);
+}
+.sap-write-review > .sap-write-list {
+  margin-block-start: 12px;
+  padding-block-start: 10px;
+  border-block-start: 1px solid var(--sap-write-divider);
+}
+.sap-write-review .sap-write-row { padding: 0 0 9px; border: 0; }
+.sap-write-review .sap-write-row:last-child { padding-bottom: 0; }
+.sap-write-review .sap-write-row + .sap-write-row {
+  padding-block-start: 9px;
+  border-block-start: 1px solid var(--sap-write-divider);
+}
+.sap-write-operation { display: block; margin-bottom: 4px; font-weight: 600; }
+.sap-write-fields {
+  display: grid;
+  grid-template-columns: minmax(42px, max-content) minmax(0, 1fr);
+  gap: 5px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.sap-write-fields dt { color: var(--fill-secondary); }
+.sap-write-fields dd { min-width: 0; margin: 0; }
+.sap-write-metadata-diff { display: grid; gap: 3px; white-space: pre-wrap; }
+.sap-write-metadata-diff del { color: var(--fill-secondary); }
+.sap-write-metadata-diff ins { font-weight: 600; text-decoration: none; }
 .sap-write-list {
   list-style: none;
   padding: 0;
@@ -237,11 +324,71 @@ export const CHAT_STYLES =
   overflow: auto;
 }
 .sap-write-row { padding: 5px 2px; border-top: 1px solid var(--color-border); }
-.sap-write-note { margin: 3px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.sap-write-tags { margin: 3px 0; padding-inline-start: 16px; }
+.sap-write-note {
+  min-inline-size: 0;
+  margin: 0;
+  padding-inline-start: 8px;
+  border-inline-start: 2px solid var(--color-border);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.sap-write-note :is(p, ul, ol, pre, blockquote, h1, h2, h3, h4, h5, h6) { margin: 0 0 5px; }
+.sap-write-note > :last-child { margin-bottom: 0; }
+.sap-write-note :is(ul, ol) { padding-inline-start: 19px; }
+.sap-write-note :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; }
+.sap-write-note pre { white-space: pre-wrap; }
+.sap-write-note a[title] { text-decoration: underline; }
+.sap-write-tags { margin: 0; padding-inline-start: 16px; }
 .sap-write-target, .sap-write-status { font-size: 11px; color: var(--fill-secondary); }
 .sap-write-error { color: var(--color-invalid); }
-.sap-write-actions { display: flex; justify-content: end; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.sap-write-actions {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-block-start: 12px;
+  padding-block-start: 11px;
+  border-block-start: 1px solid var(--sap-write-divider);
+}
+.sap-write-actions .sap-write-status { margin-inline-end: auto; }
+.sap-write-review button.sap-write-action {
+  min-width: 0;
+  height: 33px;
+  padding: 0 10px;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fill-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.sap-write-review button.sap-write-action:hover:enabled { background: var(--fill-quinary); }
+.sap-write-review button.sap-write-action.sap-write-approve {
+  background: var(--fill-primary);
+  color: var(--color-control);
+}
+.sap-write-review button.sap-write-action.sap-write-approve:hover:enabled {
+  background: var(--fill-secondary);
+}
+.sap-write-review button.sap-write-action:disabled { color: var(--fill-tertiary); cursor: default; }
+.sap-write-review[data-phase="resolved"] { padding-block: 9px; }
+.sap-write-review[data-phase="resolved"] .sap-write-header { align-items: center; gap: 5px; }
+.sap-write-review[data-phase="resolved"] .sap-write-symbol { flex-basis: 25px; inline-size: 25px; block-size: 25px; border: 0; }
+.sap-write-review[data-phase="resolved"] .sap-write-subtitle { display: none; }
+.sap-write-review[data-phase="resolved"] .sap-write-heading h3 {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sap-write-review button[aria-expanded="true"] svg { transform: rotate(180deg); }
+.sap-write-review[data-phase="running"] .sap-write-symbol svg { animation: sap-write-spin 1.4s linear infinite; }
+@keyframes sap-write-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .sap-write-review[data-phase="running"] .sap-write-symbol svg { animation: none; }
+}
 .sap-write-history-row { display: flex; justify-content: space-between; align-items: start; gap: 6px; }
 .sap-write-history-row > div { min-width: 0; }
 .sap-write-history-row > button { flex: none; }

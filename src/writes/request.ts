@@ -1,16 +1,30 @@
 import { z } from "zod";
 import { config } from "../../package.json";
 import type { PaperContext } from "../context/paper";
+import {
+  metadataSchema,
+  prepareMetadata,
+  type MetadataChange,
+} from "./metadata";
 
 export const PROPOSE_ZOTERO_WRITE = "propose_zotero_write";
-const deletePref = `${config.prefsPrefix}.allowTagDeletion`;
+export const TAG_DELETION_PREF = `${config.prefsPrefix}.allowTagDeletion`;
+export const READ_ONLY_PREF = `${config.prefsPrefix}.readOnly`;
+
+export function writeAllowed(): boolean {
+  return Zotero.Prefs.get(READ_ONLY_PREF, true) !== true;
+}
+
+export function setWriteAllowed(allowed: boolean): void {
+  Zotero.Prefs.set(READ_ONLY_PREF, !allowed, true);
+}
 
 export function tagDeletionAllowed(): boolean {
-  return Zotero.Prefs.get(deletePref, true) === true;
+  return Zotero.Prefs.get(TAG_DELETION_PREF, true) === true;
 }
 
 export function setTagDeletionAllowed(allowed: boolean): void {
-  Zotero.Prefs.set(deletePref, allowed, true);
+  Zotero.Prefs.set(TAG_DELETION_PREF, allowed, true);
 }
 
 export const itemIdentifier = {
@@ -23,22 +37,36 @@ const turnId = z
   .min(1)
   .describe("The turn ID supplied in the prompt.");
 const html = z.string().min(1);
+const noteKey = z.string().min(1);
 const tags = z.array(z.string().trim().normalize().min(1)).min(1).max(100);
-const operationShapes = [
-  { operation: z.literal("create_note"), change: z.strictObject({ html }) },
-  {
+const operationSchemas = [
+  z.strictObject({
+    ...itemIdentifier,
+    operation: z.literal("create_note"),
+    change: z.strictObject({ html }),
+  }),
+  z.strictObject({
+    ...itemIdentifier,
     operation: z.literal("edit_note"),
-    change: z.strictObject({ noteKey: z.string().min(1), html }),
-  },
-  { operation: z.literal("add_tags"), change: z.strictObject({ tags }) },
-  { operation: z.literal("delete_tags"), change: z.strictObject({ tags }) },
+    change: z.strictObject({ noteKey, html }),
+  }),
+  z.strictObject({
+    ...itemIdentifier,
+    operation: z.literal("add_tags"),
+    change: z.strictObject({ tags }),
+  }),
+  z.strictObject({
+    ...itemIdentifier,
+    operation: z.literal("delete_tags"),
+    change: z.strictObject({ tags }),
+  }),
+  z.strictObject({
+    ...itemIdentifier,
+    operation: z.literal("update_metadata"),
+    change: metadataSchema,
+  }),
 ] as const;
-const operationSchema = z.discriminatedUnion("operation", [
-  z.strictObject({ ...itemIdentifier, ...operationShapes[0] }),
-  z.strictObject({ ...itemIdentifier, ...operationShapes[1] }),
-  z.strictObject({ ...itemIdentifier, ...operationShapes[2] }),
-  z.strictObject({ ...itemIdentifier, ...operationShapes[3] }),
-]);
+const operationSchema = z.discriminatedUnion("operation", operationSchemas);
 const operations = z
   .array(operationSchema)
   .min(1)
@@ -46,14 +74,9 @@ const operations = z
   .describe(
     "Ordered batch. Identify non-current items by key or ID in the current library.",
   );
-const batch = z.strictObject({ turnId, operations });
-
 export const writeSchema = z.union([
-  batch,
-  z.strictObject({ turnId, ...itemIdentifier, ...operationShapes[0] }),
-  z.strictObject({ turnId, ...itemIdentifier, ...operationShapes[1] }),
-  z.strictObject({ turnId, ...itemIdentifier, ...operationShapes[2] }),
-  z.strictObject({ turnId, ...itemIdentifier, ...operationShapes[3] }),
+  z.strictObject({ turnId, operations }),
+  ...operationSchemas.map((schema) => schema.extend({ turnId })),
 ]);
 
 // Some MCP clients accept only a root object schema for tool arguments.
@@ -63,7 +86,7 @@ export const writeInputSchema = z.toJSONSchema(
     operations: operations.optional(),
     ...itemIdentifier,
     operation: z
-      .enum(["create_note", "edit_note", "add_tags", "delete_tags"])
+      .enum(operationSchemas.map(({ shape }) => shape.operation.value))
       .optional()
       .describe(
         "For one change, supply operation and change instead of operations.",
@@ -71,12 +94,13 @@ export const writeInputSchema = z.toJSONSchema(
     change: z
       .strictObject({
         html: html.optional(),
-        noteKey: z.string().min(1).optional(),
+        noteKey: noteKey.optional(),
         tags: tags.optional(),
+        ...metadataSchema.shape,
       })
       .optional()
       .describe(
-        "Use html for create_note, noteKey and html for edit_note, or tags for add_tags and delete_tags.",
+        "Use html for create_note, noteKey and html for edit_note, tags for add_tags and delete_tags, or itemType, fields, and/or creators for update_metadata.",
       ),
   }),
   { target: "draft-7", io: "input" },
@@ -88,10 +112,12 @@ export type ItemIdentity = Pick<
 >;
 type Operation = z.infer<typeof operationSchema>;
 type Change<T> = T extends Operation ? Pick<T, "operation" | "change"> : never;
-export type ApprovedChange = Change<Operation> & {
-  target: ItemIdentity;
-  note?: { title: string; previousHTML: string };
-};
+export type ApprovedChange = (
+  | (Change<Exclude<Operation, { operation: "update_metadata" }>> & {
+      note?: { title: string; previousHTML: string };
+    })
+  | { operation: "update_metadata"; change: MetadataChange; note?: never }
+) & { target: ItemIdentity };
 
 export interface WriteProposal {
   operations: readonly ApprovedChange[];
@@ -154,7 +180,10 @@ export async function resolveNote(
   return note;
 }
 
-function sanitizeNote(src: string): string {
+export function parseNoteHTML(
+  src: string,
+  container: HTMLElement,
+): DocumentFragment {
   const classes = Components.classes as unknown as Record<
     string,
     { getService<T>(iid: nsJSIID<T>): T }
@@ -162,18 +191,20 @@ function sanitizeNote(src: string): string {
   const parser = classes["@mozilla.org/parserutils;1"].getService(
     Components.interfaces.nsIParserUtils,
   );
+  return parser.parseFragment(
+    src,
+    parser.SanitizerDropForms! | parser.SanitizerDropMedia!,
+    false,
+    Services.io.newURI("about:blank"),
+    container,
+  );
+}
+
+function sanitizeNote(src: string): string {
   const doc =
     Zotero.getMainWindow().document.implementation.createHTMLDocument();
   const body = doc.body!;
-  body.append(
-    parser.parseFragment(
-      src,
-      parser.SanitizerDropForms! | parser.SanitizerDropMedia!,
-      false,
-      Services.io.newURI("about:blank"),
-      body,
-    ),
-  );
+  body.append(parseNoteHTML(src, body));
   const html = String(body.innerHTML).trim();
   if (!html) throw new Error("The proposed note has no supported content.");
   return html;
@@ -216,6 +247,13 @@ export async function prepareWrite(
       );
     const target = itemIdentity(item);
     switch (operation.operation) {
+      case "update_metadata":
+        operations.push({
+          target,
+          operation: operation.operation,
+          change: prepareMetadata(item, operation.change),
+        });
+        break;
       case "create_note":
         operations.push({
           target,

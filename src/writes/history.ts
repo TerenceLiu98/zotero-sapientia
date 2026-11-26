@@ -1,8 +1,10 @@
 import { logError } from "../utils/log";
+import { metadataMatches, setMetadata, type MetadataChange } from "./metadata";
 import {
   resolveItem,
   resolveNote,
   tagDeletionAllowed,
+  writeAllowed,
   type ApprovedChange,
   type ItemIdentity,
 } from "./request";
@@ -10,6 +12,7 @@ import {
 type TagChange = { tag: string; before: number | null; after: number | null };
 type Reversal =
   | { kind: "tags"; tags: TagChange[] }
+  | { kind: "metadata"; change: MetadataChange }
   | { kind: "created-note"; noteKey: string; after: string }
   | { kind: "edited-note"; noteKey: string; before: string; after: string };
 
@@ -88,6 +91,23 @@ async function apply(
 ): Promise<Reversal | undefined> {
   const parent = await resolveItem(change.target);
   switch (change.operation) {
+    case "update_metadata": {
+      const metadata = change.change;
+      if (
+        !metadata.newItemTypeID &&
+        !metadata.fields.length &&
+        !metadata.creators
+      )
+        return;
+      if (!metadataMatches(parent, metadata, "before"))
+        throw new Error(
+          "The item metadata changed since preview. Request a new proposal.",
+        );
+      track(parent, "primaryData", "itemData", "creators");
+      setMetadata(parent, metadata, "after");
+      await parent.save();
+      return { kind: "metadata", change: metadata };
+    }
     case "create_note": {
       const note = new Zotero.Item("note");
       note.libraryID = parent.libraryID;
@@ -146,6 +166,7 @@ export async function applyWithHistory(
   // Keep the Zotero mutation and its undo data in the same transaction.
   return transaction(async (track) => {
     if (signal.aborted) return null;
+    if (!writeAllowed()) throw new Error("Zotero is in read-only mode.");
     const reversal = await apply(change, track);
     if (!reversal) return;
     const id = Zotero.Utilities.randomString(24);
@@ -174,7 +195,13 @@ export async function undoWrite(id: string): Promise<void> {
     if (!row) throw new Error("This change is no longer available to undo.");
     const parent = await resolveItem(JSON.parse(row.target) as ItemIdentity);
     const reversal = JSON.parse(row.reversal) as Reversal;
-    if (reversal.kind === "tags") {
+    if (reversal.kind === "metadata") {
+      if (!metadataMatches(parent, reversal.change, "after"))
+        throw new Error("The item metadata has changed since approval.");
+      track(parent, "primaryData", "itemData", "creators");
+      setMetadata(parent, reversal.change, "before");
+      await parent.save();
+    } else if (reversal.kind === "tags") {
       const current = tagTypes(parent);
       if (
         reversal.tags.some(

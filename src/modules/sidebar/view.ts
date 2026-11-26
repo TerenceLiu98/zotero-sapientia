@@ -94,6 +94,7 @@ export function createChatView(
       stop: () => chat.stop(),
       selectAgent: (id) => chat.selectAgent(id),
       selectModel: (id) => chat.selectModel(id),
+      cancelWrites: () => chat.writes.cancelActive(),
     },
     context.attachments,
   );
@@ -239,6 +240,8 @@ export function createChatView(
         answer.element.hidden = !answerText;
         answer.render({
           text: answerText,
+          paperTitle: current.context?.paper?.title,
+          pdfRead: current.pdfRead,
           pdfUrl:
             (current.context?.paper?.attachments?.length ?? 1) === 1
               ? current.context?.paper?.attachment?.uri
@@ -317,7 +320,10 @@ export function createChatView(
     element: root,
     setVisible(visible) {
       context.setVisible(visible);
-      if (!visible) answerSelection.hide();
+      if (!visible) {
+        composer.closePermissions();
+        answerSelection.hide();
+      }
     },
     destroy() {
       unsubscribe();

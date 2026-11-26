@@ -1,25 +1,53 @@
-import { History, Undo2 } from "lucide";
+import {
+  Check,
+  ChevronDown,
+  CircleAlert,
+  FilePenLine,
+  FilePlus2,
+  History,
+  LoaderCircle,
+  ShieldCheck,
+  Tag,
+  Undo2,
+  X,
+} from "lucide";
 import { getString, type MessageId } from "../../utils/locale";
 import {
   writeError,
   type Review,
   type WriteApprovals,
 } from "../../writes/approval";
-import type { ApprovedChange, WriteOutcome } from "../../writes/request";
-import { h, iconButton } from "../ui/dom";
+import {
+  parseNoteHTML,
+  type ApprovedChange,
+  type WriteOutcome,
+} from "../../writes/request";
+import { h, iconButton, lucideIcon } from "../ui/dom";
 
 const labels: Record<ApprovedChange["operation"], MessageId> = {
   create_note: "write-create-note",
   edit_note: "write-edit-note",
   add_tags: "write-add-tags",
   delete_tags: "write-delete-tags",
+  update_metadata: "write-update-metadata",
+};
+const icons = {
+  create_note: FilePlus2,
+  edit_note: FilePenLine,
+  add_tags: Tag,
+  delete_tags: Tag,
+  update_metadata: FilePenLine,
 };
 
 export function createWriteReview(doc: Document, writes: WriteApprovals) {
   let review: Review | null = null;
   let historyOpen = false;
   let historyRequest = 0;
+  let detailsOpen = false;
   const title = h(doc, "h3", {}, getString("write-review"));
+  const subtitle = h(doc, "p", { class: "sap-write-subtitle" });
+  const symbol = h(doc, "span", { class: "sap-write-symbol" });
+  const badge = h(doc, "span", { class: "sap-write-badge" });
   const list = h(doc, "ol", { class: "sap-write-list" });
   const announcement = h(doc, "div", {
     role: "status",
@@ -63,9 +91,36 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
     "write-cancel",
     () => review && writes.cancel(review.id),
   );
-  const dismiss = action(
-    "write-dismiss",
+  confirm.classList.add("sap-write-approve");
+  confirm.setAttribute(
+    "aria-keyshortcuts",
+    Zotero.isMac ? "Meta+Enter" : "Control+Enter",
+  );
+  cancel.setAttribute("aria-keyshortcuts", "Escape");
+  const dismiss = iconButton(
+    doc,
+    getString("write-dismiss"),
+    X,
     () => review && writes.dismiss(review.id),
+  );
+  const details = iconButton(
+    doc,
+    getString("write-details"),
+    ChevronDown,
+    () => {
+      detailsOpen = !detailsOpen;
+      details.setAttribute("aria-expanded", String(detailsOpen));
+      list.hidden = !detailsOpen;
+    },
+  );
+  details.setAttribute("aria-expanded", "false");
+  const footer = h(
+    doc,
+    "div",
+    { class: "sap-write-actions" },
+    announcement,
+    cancel,
+    confirm,
   );
   const element = h(
     doc,
@@ -75,17 +130,40 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
       "aria-label": getString("write-review"),
       hidden: true,
     },
-    title,
+    h(
+      doc,
+      "header",
+      { class: "sap-write-header" },
+      symbol,
+      h(doc, "div", { class: "sap-write-heading" }, title, subtitle),
+      badge,
+      details,
+      dismiss,
+    ),
     list,
-    announcement,
-    h(doc, "div", { class: "sap-write-actions" }, cancel, confirm, dismiss),
+    footer,
   );
+  element.addEventListener("keydown", (event) => {
+    const key = event as KeyboardEvent;
+    if (key.isComposing || key.repeat || !review) return;
+    const approve =
+      key.key === "Enter" && (Zotero.isMac ? key.metaKey : key.ctrlKey);
+    const button = approve
+      ? confirm
+      : key.key === "Escape"
+        ? cancel
+        : undefined;
+    if (!button || button.hidden || button.disabled) return;
+    key.preventDefault();
+    key.stopPropagation();
+    button.click();
+  });
 
   function action(label: MessageId, run: () => void) {
     return h(
       doc,
       "button",
-      { class: "sap-chat-button", type: "button", click: run },
+      { class: "sap-chat-button sap-write-action", type: "button", click: run },
       getString(label),
     );
   }
@@ -94,32 +172,127 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
     change: ApprovedChange,
     outcome: WriteOutcome | undefined,
     running: boolean,
+    multiple: boolean,
   ) {
-    const payload =
-      "html" in change.change
-        ? h(doc, "pre", { class: "sap-write-note" }, change.change.html)
-        : h(
+    const content = change.change;
+    const isNote = "html" in content;
+    const payload = isNote
+      ? notePreview(content.html)
+      : "tags" in content
+        ? h(
             doc,
             "ul",
             { class: "sap-write-tags" },
-            ...change.change.tags.map((tag) => h(doc, "li", {}, tag)),
-          );
+            ...content.tags.map((tag) => h(doc, "li", {}, tag)),
+          )
+        : null;
+    const fields =
+      "fields" in content
+        ? [
+            ...(content.newItemTypeID === undefined
+              ? []
+              : [
+                  {
+                    label: getString("write-field-item-type"),
+                    before: Zotero.ItemTypes.getLocalizedString(
+                      content.itemTypeID,
+                    ),
+                    after: Zotero.ItemTypes.getLocalizedString(
+                      content.newItemTypeID,
+                    ),
+                  },
+                ]),
+            ...content.fields
+              .filter(({ before, after }) => before !== after)
+              .map(({ field, beforeDisplay, afterDisplay }) => ({
+                label: Zotero.ItemFields.getLocalizedString(field) as string,
+                before: beforeDisplay,
+                after: afterDisplay,
+              })),
+            ...(content.creators &&
+            creatorList(content.creators.before) !==
+              creatorList(content.creators.after)
+              ? [
+                  {
+                    label: getString("write-field-creators"),
+                    before: creatorList(content.creators.before),
+                    after: creatorList(content.creators.after),
+                  },
+                ]
+              : []),
+          ]
+        : [];
     return h(
       doc,
       "li",
       { class: "sap-write-row" },
-      h(doc, "strong", {}, change.target.title),
-      h(doc, "div", { class: "sap-write-target" }, change.target.itemKey),
-      h(doc, "div", {}, getString(labels[change.operation])),
-      change.note && "noteKey" in change.change
+      multiple
         ? h(
             doc,
-            "div",
-            { class: "sap-write-target" },
-            `${change.note.title} (${change.change.noteKey})`,
+            "strong",
+            { class: "sap-write-operation" },
+            getString(labels[change.operation]),
           )
         : null,
-      payload,
+      h(
+        doc,
+        "dl",
+        { class: "sap-write-fields" },
+        h(doc, "dt", {}, getString("write-field-item")),
+        h(
+          doc,
+          "dd",
+          {},
+          multiple ? `${change.target.title} ` : null,
+          h(doc, "span", { class: "sap-write-target" }, change.target.itemKey),
+        ),
+        change.note && "noteKey" in change.change
+          ? h(doc, "dt", {}, getString("write-field-note"))
+          : null,
+        change.note && "noteKey" in change.change
+          ? h(
+              doc,
+              "dd",
+              {},
+              `${change.note.title} `,
+              h(
+                doc,
+                "span",
+                { class: "sap-write-target" },
+                change.change.noteKey,
+              ),
+            )
+          : null,
+        payload
+          ? h(
+              doc,
+              "dt",
+              {},
+              getString(isNote ? "write-field-content" : "write-field-tags"),
+            )
+          : null,
+        payload ? h(doc, "dd", {}, payload) : null,
+        ...fields.flatMap(({ label, before, after }) => [
+          h(doc, "dt", {}, label),
+          h(
+            doc,
+            "dd",
+            { class: "sap-write-metadata-diff" },
+            h(
+              doc,
+              "del",
+              { "aria-label": getString("write-field-before") },
+              before || getString("write-field-empty"),
+            ),
+            h(
+              doc,
+              "ins",
+              { "aria-label": getString("write-field-after") },
+              after || getString("write-field-empty"),
+            ),
+          ),
+        ]),
+      ),
       outcome || running
         ? h(
             doc,
@@ -130,6 +303,27 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
           )
         : null,
     );
+  }
+
+  function creatorList(creators: _ZoteroTypes.Item.CreatorJSON[]) {
+    return creators
+      .map(({ name, firstName, lastName, creatorType }) => {
+        const displayName =
+          name ?? [firstName, lastName].filter(Boolean).join(" ");
+        return `${displayName} (${Zotero.CreatorTypes.getLocalizedString(creatorType)})`;
+      })
+      .join("\n");
+  }
+
+  function notePreview(html: string) {
+    const preview = h(doc, "div", { class: "sap-write-note" });
+    const content = parseNoteHTML(html, preview);
+    for (const link of content.querySelectorAll("a[href]")) {
+      link.setAttribute("title", link.getAttribute("href")!);
+      link.removeAttribute("href");
+    }
+    preview.append(content);
+    return preview;
   }
 
   async function refreshHistory() {
@@ -206,30 +400,90 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
     element.hidden = !review;
     if (!review) return;
     const { phase, proposal, outcomes } = review;
-    if (previous?.id !== review.id) list.scrollTop = 0;
+    const pending = phase === "pending";
+    const running = phase === "running";
+    const finished = !pending && !running;
+    const failed = outcomes.some(({ status }) => status === "failed");
+    const multiple = proposal.operations.length > 1;
+    const first = proposal.operations[0];
+    const sameItem = proposal.operations.every(
+      ({ target }) => target.itemID === first.target.itemID,
+    );
+    const active = doc.activeElement;
+    if (previous?.id !== review.id) {
+      list.scrollTop = 0;
+      detailsOpen = false;
+    } else if (finished && previous.phase !== phase) {
+      detailsOpen = failed;
+    }
+    title.textContent = getString(
+      multiple ? "write-review" : labels[first.operation],
+    );
+    title.title = title.textContent;
+    subtitle.textContent = sameItem
+      ? first.target.title
+      : getString("write-change-count", { count: proposal.operations.length });
+    element.setAttribute("aria-label", title.textContent);
+    element.dataset.phase = finished ? "resolved" : phase;
+    let treatment = "neutral";
+    let statusLabel: MessageId;
+    let glyph;
+    if (pending) {
+      const medium = proposal.operations.some(
+        ({ operation }) =>
+          operation === "edit_note" ||
+          operation === "delete_tags" ||
+          operation === "update_metadata",
+      );
+      treatment = medium ? "medium" : "low";
+      statusLabel = medium ? "write-risk-medium" : "write-risk-low";
+      glyph = multiple ? ShieldCheck : icons[first.operation];
+    } else if (running) {
+      statusLabel = "write-applying";
+      glyph = LoaderCircle;
+    } else if (failed) {
+      statusLabel = "write-result-errors";
+      glyph = CircleAlert;
+    } else if (phase === "cancelled") {
+      const denied = outcomes.every(({ status }) => status === "cancelled");
+      statusLabel = denied ? "write-result-denied" : "write-result-stopped";
+      glyph = X;
+    } else {
+      treatment = "approved";
+      statusLabel = "write-result-approved";
+      glyph = Check;
+    }
+    badge.dataset.treatment = treatment;
+    badge.textContent = getString(statusLabel);
+    symbol.replaceChildren(lucideIcon(doc, glyph, 16));
     const scrollTop = list.scrollTop;
     list.replaceChildren(
       ...proposal.operations.map((change, index) =>
-        reviewRow(change, outcomes[index], phase === "running"),
+        reviewRow(change, outcomes[index], running, multiple),
       ),
     );
     list.scrollTop = scrollTop;
-    const finished = phase === "completed" || phase === "cancelled";
-    confirm.hidden = phase !== "pending";
+    list.hidden = finished && !detailsOpen;
+    details.hidden = !finished;
+    details.setAttribute("aria-expanded", String(detailsOpen));
+    footer.hidden = finished;
+    confirm.hidden = !pending;
     cancel.hidden = finished;
     cancel.disabled = Boolean(review.stopping);
+    cancel.textContent = getString(pending ? "write-deny" : "write-cancel");
     dismiss.hidden = !finished;
-    announcement.textContent =
-      phase === "pending"
-        ? ""
-        : getString(
-            `write-phase-${review.stopping && !finished ? "stopping" : phase}`,
-            {
-              done: outcomes.filter(({ status }) => status !== "cancelled")
-                .length,
-              total: proposal.operations.length,
-            },
-          );
+    announcement.hidden = !running;
+    announcement.textContent = !running
+      ? ""
+      : getString(`write-phase-${review.stopping ? "stopping" : "running"}`, {
+          done: outcomes.filter(({ status }) => status !== "cancelled").length,
+          total: proposal.operations.length,
+        });
+    if (active === confirm || active === cancel) {
+      if (finished) details.focus({ preventScroll: true });
+      else if (running && active === confirm)
+        cancel.focus({ preventScroll: true });
+    }
     if (historyOpen && outcomes.length !== previous?.outcomes.length)
       void refreshHistory();
   });

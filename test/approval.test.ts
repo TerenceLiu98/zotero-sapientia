@@ -1,15 +1,12 @@
 import { assert } from "chai";
 import { CHAT_PANE_ID, CHAT_TOGGLE_ID } from "../src/modules/sidebar/section";
-import { tagDeletionAllowed } from "../src/writes/request";
 import {
-  mainWindow,
-  makeAgent,
-  plugin,
-  PREFS_PANE_ID,
-  reset,
-  until,
-  use,
-} from "./helpers";
+  setTagDeletionAllowed,
+  setWriteAllowed,
+  tagDeletionAllowed,
+  writeAllowed,
+} from "../src/writes/request";
+import { mainWindow, makeAgent, plugin, reset, until, use } from "./helpers";
 
 type Call = [string, Record<string, unknown>];
 const proposal = (
@@ -122,7 +119,7 @@ describe("write approval in the Zotero sidebar", function () {
       assert.isNotTrue(result.isError, result.content[0].text);
       return JSON.parse(result.content[0].text);
     };
-    const pending = () => until(() => !review().hidden && action("Confirm"));
+    const pending = () => until(() => !review().hidden && action("Approve"));
     const history = () => chat.writes.history();
     const historyCount = async () => (await history()).length;
     const undo = async (id: string) => {
@@ -146,12 +143,55 @@ describe("write approval in the Zotero sidebar", function () {
       pane.querySelector<HTMLButtonElement>(
         'button[aria-label="Write history"]',
       )!;
-    let prefs: Window | undefined;
+    const permissionTrigger = pane.querySelector<HTMLButtonElement>(
+      ".sap-permission-trigger",
+    )!;
+    const permissions = pane.querySelector<HTMLElement>(
+      ".sap-permission-panel",
+    )!;
     const saveB = b.save;
     try {
       assert.isTrue(await chat.connect());
       const initialHistory = await historyCount();
       resize(300);
+      permissionTrigger.click();
+      assert.isTrue(permissions.matches(":popover-open"));
+      assert.lengthOf(
+        permissions.querySelectorAll('[role="menuitemcheckbox"]'),
+        1,
+      );
+      assert.exists(
+        permissions.querySelector('[data-permission="tag-deletion"]'),
+      );
+      const readOnly = permissions.querySelector<HTMLButtonElement>(
+        '[data-permission="read-only"]',
+      )!;
+      const requestApproval = permissions.querySelector<HTMLButtonElement>(
+        '[data-permission="approval"]',
+      )!;
+      assert.equal(requestApproval.getAttribute("aria-checked"), "true");
+      requestApproval.focus();
+      requestApproval.dispatchEvent(
+        new win.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      assert.equal(doc.activeElement, readOnly);
+      assert.isTrue(writeAllowed());
+      readOnly.click();
+      assert.isFalse(writeAllowed());
+      assert.isFalse(permissions.matches(":popover-open"));
+      assert.equal(doc.activeElement, permissionTrigger);
+      start(
+        ["read_paper_metadata", {}],
+        proposal("add_tags", { tags: ["Read only must prevent this"] }),
+      );
+      const [readInReadOnlyMode, readOnlyResult] = await results(2);
+      assert.equal(value(readInReadOnlyMode).itemKey, a.key);
+      assert.isTrue(readOnlyResult.isError);
+      assert.include(readOnlyResult.content[0].text, "read-only");
+      assert.isTrue(review().hidden);
+      permissionTrigger.click();
+      requestApproval.click();
+      assert.isFalse(permissions.matches(":popover-open"));
       const large =
         "<p>" + "A complete proposed note ".repeat(60).trim() + "</p>";
       start(
@@ -160,9 +200,24 @@ describe("write approval in the Zotero sidebar", function () {
       );
       await pending();
       assert.include(review().textContent, title);
-      assert.include(review().textContent, large);
+      assert.equal(
+        review().querySelector("h3")?.textContent,
+        "Create child note",
+      );
+      assert.equal(
+        review().querySelector(".sap-write-subtitle")?.textContent,
+        title,
+      );
+      assert.equal(
+        review().querySelector(".sap-write-badge")?.textContent,
+        "Low risk",
+      );
+      assert.equal(
+        review().querySelector(".sap-write-note p")?.textContent,
+        "A complete proposed note ".repeat(60).trim(),
+      );
       assert.isAtMost(review().scrollWidth, review().clientWidth);
-      for (const label of ["Confirm", "Cancel"]) {
+      for (const label of ["Approve", "Deny"]) {
         const rect = action(label)!.getBoundingClientRect();
         const card = review().getBoundingClientRect();
         assert.isAbove(rect.width, 0);
@@ -174,10 +229,22 @@ describe("write approval in the Zotero sidebar", function () {
         [note.id],
         "waiting for approval leaves the library untouched",
       );
-      click("Cancel");
+      action("Deny")!.dispatchEvent(
+        new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
       const [read, cancelled] = await results(2);
       assert.equal(value(read).itemKey, a.key);
       assert.equal(value(cancelled).status, "cancelled");
+      assert.equal(
+        review().querySelector(".sap-write-badge")?.textContent,
+        "Denied",
+      );
+      const resolvedDetails = review().querySelector<HTMLButtonElement>(
+        'button[aria-label="Change details"]',
+      )!;
+      assert.equal(resolvedDetails.getAttribute("aria-expanded"), "false");
+      resolvedDetails.click();
+      assert.equal(resolvedDetails.getAttribute("aria-expanded"), "true");
       assert.deepEqual(a.getNotes(), [note.id]);
       assert.equal(await historyCount(), initialHistory);
 
@@ -188,12 +255,22 @@ describe("write approval in the Zotero sidebar", function () {
       );
       await pending();
       assert.include(review().textContent, note.key);
-      assert.include(review().textContent, edited);
+      assert.equal(
+        review().querySelector(".sap-write-note p")?.textContent,
+        "Revised in the fixture",
+      );
       await select(b);
-      click("Confirm");
+      action("Approve")!.dispatchEvent(
+        new win.KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          metaKey: Zotero.isMac,
+          ctrlKey: !Zotero.isMac,
+        }),
+      );
       await pending();
       assert.include(review().textContent, "Reviewed tag");
-      click("Confirm");
+      click("Approve");
       const [editResponse, tagResponse] = (await results(2)).map(value);
       const editRecord = editResponse.outcomes[0];
       const tagRecord = tagResponse.outcomes[0];
@@ -229,24 +306,23 @@ describe("write approval in the Zotero sidebar", function () {
       assert.include(denied.content[0].text, "disabled");
       assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
 
-      prefs = Zotero.Utilities.Internal.openPreferences(PREFS_PANE_ID)!;
-      await until(() =>
-        prefs!.document.querySelector("#sapientia-allow-tag-deletion"),
-      );
-      const checkbox = prefs.document.querySelector<HTMLInputElement>(
-        "#sapientia-allow-tag-deletion",
+      permissionTrigger.click();
+      const checkbox = permissions.querySelector<HTMLButtonElement>(
+        '[data-permission="tag-deletion"]',
       )!;
-      assert.isFalse(checkbox.checked);
+      assert.equal(checkbox.getAttribute("aria-checked"), "false");
       checkbox.click();
       assert.isTrue(tagDeletionAllowed());
+      assert.equal(checkbox.getAttribute("aria-checked"), "true");
+      permissionTrigger.click();
       start(removeTag);
       await pending();
-      click("Cancel");
+      click("Deny");
       assert.equal(value((await results())[0]).status, "cancelled");
       assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
       start(removeTag);
       await pending();
-      click("Confirm");
+      click("Approve");
       const removed = value((await results())[0]).outcomes[0];
       assert.equal(removed.status, "applied");
       assert.isEmpty(a.getTags());
@@ -288,7 +364,7 @@ describe("write approval in the Zotero sidebar", function () {
         click("Cancel");
       });
       try {
-        click("Confirm");
+        click("Approve");
         const stopped = value((await results())[0]);
         assert.isTrue(atBoundary);
         assert.equal(stopped.status, "cancelled");
@@ -326,7 +402,7 @@ describe("write approval in the Zotero sidebar", function () {
         ),
       );
       await pending();
-      click("Confirm");
+      click("Approve");
       const result = value((await results())[0]);
       assert.deepEqual(
         result.outcomes.map((entry: { status: string }) => entry.status),
@@ -349,19 +425,33 @@ describe("write approval in the Zotero sidebar", function () {
       b.save = saveB;
       start(
         proposal("create_note", {
-          html: "<p>A confirmed child note</p><script>window.fixtureChanged = true</script>",
+          html: '<p><strong>A confirmed child note</strong></p><ul><li><a href="https://example.com/">Source</a></li></ul><script>window.fixtureChanged = true</script>',
         }),
       );
       await pending();
-      assert.include(review().textContent, "<p>A confirmed child note</p>");
-      assert.notInclude(review().textContent, "fixtureChanged");
-      click("Confirm");
+      const preview = review().querySelector(".sap-write-note")!;
+      assert.equal(
+        preview.querySelector("p strong")?.textContent,
+        "A confirmed child note",
+      );
+      const source = preview.querySelector("ul li a")!;
+      assert.equal(source.textContent, "Source");
+      assert.isFalse(source.hasAttribute("href"));
+      assert.notInclude(preview.textContent!, "fixtureChanged");
+      click("Approve");
       const created = value((await results())[0]).outcomes[0];
       assert.equal(created.status, "applied");
       const childID = a.getNotes().find((id) => id !== note.id)!;
       const child = Zotero.Items.get(childID);
       if (!child) throw new Error("The confirmed child note was not saved.");
-      assert.include(child.getNote(), "<p>A confirmed child note</p>");
+      assert.include(
+        child.getNote(),
+        "<p><strong>A confirmed child note</strong></p>",
+      );
+      assert.include(
+        child.getNote(),
+        '<a href="https://example.com/">Source</a>',
+      );
       historyButton.click();
       await until(
         () =>
@@ -373,11 +463,9 @@ describe("write approval in the Zotero sidebar", function () {
       historyButton.click();
     } finally {
       b.save = saveB;
-      const checkbox = prefs?.document.querySelector<HTMLInputElement>(
-        "#sapientia-allow-tag-deletion",
-      );
-      if (checkbox?.checked) checkbox.click();
-      prefs?.close();
+      setTagDeletionAllowed(false);
+      setWriteAllowed(true);
+      permissions.hidePopover();
       resize(initialWidth);
       await chat.disconnect();
     }
