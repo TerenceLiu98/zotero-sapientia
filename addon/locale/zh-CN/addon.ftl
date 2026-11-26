@@ -129,7 +129,6 @@ permission-title = Agent 写入权限
 permission-approval = 请求审批
 permission-read-only = 只读
 permission-heading = 如何审批 Zotero 写入？
-permission-learn-more = 了解更多
 permission-approval-scope = 元数据、笔记和标签 · 手动审批
 permission-read-only-scope = 当前文献 · 禁止写入
 permission-tag-deletion = 允许删除标签

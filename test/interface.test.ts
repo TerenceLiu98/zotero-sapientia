@@ -449,6 +449,13 @@ describe("the settings pane", function () {
     )!;
     input.dispatchEvent(new Event("focus"));
     assert.equal(input.getAttribute("aria-expanded"), "true", "the list opens");
+    const popup = doc().querySelector(".sap-combobox-list")!;
+    assert.equal(window.getComputedStyle(popup)!.scrollbarWidth, "none");
+    const settingsContent = doc().getElementById("prefs-content")!;
+    assert.equal(
+      window.getComputedStyle(settingsContent)!.scrollbarWidth,
+      "none",
+    );
     const choices = doc().querySelectorAll("#sapientia-prefs [role=option]");
     assert.deepEqual(
       [
@@ -568,7 +575,25 @@ describe("the docked chat panel", function () {
         const blocks = answer.querySelectorAll<HTMLElement>(".katex-block");
         const longFormula = blocks[1];
         assert.equal(window.getComputedStyle(longFormula)!.overflowX, "auto");
+        const wideTable =
+          answer.querySelector<HTMLElement>(".sap-answer-table")!;
+        for (const scrollable of [
+          pane.querySelector(".sap-chat-transcript")!,
+          pane.querySelector(".sap-chat-input")!,
+          pane.querySelector(".sap-answer-sources")!,
+          answer.querySelector("pre")!,
+          longFormula,
+          wideTable,
+        ]) {
+          assert.equal(
+            window.getComputedStyle(scrollable)!.scrollbarWidth,
+            "none",
+          );
+        }
         assert.isAbove(longFormula.scrollWidth, longFormula.clientWidth);
+        assert.isAbove(wideTable.scrollWidth, wideTable.clientWidth);
+        wideTable.scrollLeft = 40;
+        assert.isAbove(wideTable.scrollLeft, 0);
         assert.isAtMost(answer.scrollWidth, answer.clientWidth);
       }
       await doc.fonts.ready;
@@ -655,19 +680,28 @@ describe("the docked chat panel", function () {
     assert.isNotNull(picker.querySelector(".sap-composer-picker-icon svg"));
     assert.equal(send.getBoundingClientRect().height, 34);
     assert.equal(count(await agent.received(), "session/prompt"), 0);
-    picker.click();
-    const list = pane.querySelector<HTMLElement>(".sap-composer-picker-list")!;
-    assert.isTrue(list.matches(":popover-open"));
-    assert.isAtMost(
-      list.getBoundingClientRect().bottom,
-      picker.getBoundingClientRect().top,
-    );
-    list.querySelector<HTMLElement>('[data-model-id="careful"]')!.click();
-    await until(() => picker.textContent?.includes("Fixture Careful"));
     for (let step = 0; step < 6; step++) {
       press(window, grip, "ArrowRight");
     }
     assert.equal(grip.getAttribute("aria-valuenow"), "300");
+    picker.click();
+    const list = pane.querySelector<HTMLElement>(".sap-composer-picker-list")!;
+    assert.isTrue(list.matches(":popover-open"));
+    assert.equal(window.getComputedStyle(list)!.scrollbarWidth, "none");
+    assert.isAtMost(
+      list.getBoundingClientRect().bottom,
+      picker.getBoundingClientRect().top,
+    );
+    const careful = list.querySelector<HTMLElement>(
+      '[data-model-id="careful"]',
+    )!;
+    const optionLabel = careful.querySelector<HTMLElement>(
+      ".sap-composer-picker-option-label",
+    )!;
+    assert.isAbove(optionLabel.clientHeight, 20, "the model option wraps");
+    assert.isAtMost(optionLabel.scrollWidth, optionLabel.clientWidth);
+    careful.click();
+    await until(() => picker.textContent?.includes("Fixture Careful"));
     assert.equal(
       label.textContent,
       "Fixture Careful Research Model with Extended Reasoning",
