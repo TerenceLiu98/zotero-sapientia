@@ -36,3 +36,11 @@ The approval card follows the public interaction design of the [affectUI Approva
 Native Gecko subprocess transport was validated on Zotero 10.0.9 for macOS with Codex ACP and the fixture agent. Zotero launches and owns the agent process directly.
 
 On Zotero 10.0.9 for macOS with Codex CLI 0.172.0 and Codex ACP 2.12.0, the live test answered a question from physical page 1, explained the selected text, and summarized pages 2–3 of a synthetic three-page PDF. Clicking the last citation opened physical page 3 of that attachment.
+
+## Releases
+
+GitHub Actions runs lint, type checking, the isolated Zotero fixture suite, and the production build for every PR and update to `master`. The run's `sapientia` artifact contains the XPI and its checksum.
+
+1. Update `version` and `releaseTag` in `package.json` and synchronize the package lock. Merge the version change into `master` and wait for CI.
+2. Create and push the exact `releaseTag` on the tested `master` commit. The tag run builds, tests, and publishes the XPI and its SHA-256 checksum. An npm prerelease version publishes as a GitHub prerelease and updates the beta feed. A stable version updates the stable feed.
+3. Download `sapientia.xpi` and `sapientia.xpi.sha256` from the release, check the files with `shasum -a 256 -c sapientia.xpi.sha256`, and install the XPI through Zotero's **Tools > Plugins** menu.
