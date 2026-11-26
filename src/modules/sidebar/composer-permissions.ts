@@ -1,5 +1,4 @@
 import { Check, CircleCheck, Hand, ShieldAlert, type IconNode } from "lucide";
-import { homepage } from "../../../package.json";
 import { getString, type MessageId } from "../../utils/locale";
 import {
   READ_ONLY_PREF,
@@ -66,30 +65,6 @@ export function createComposerPermissions(
     },
     true,
   );
-  const learnMore = h(
-    doc,
-    "button",
-    {
-      class: "sap-permission-help",
-      role: "menuitem",
-      type: "button",
-      tabindex: -1,
-      click: () => {
-        const url = new URL(homepage);
-        url.hash = "approve-and-undo-writes";
-        close(true);
-        Zotero.launchURL(url.href);
-      },
-    },
-    getString("permission-learn-more"),
-  );
-  const header = h(
-    doc,
-    "div",
-    { class: "sap-permission-header" },
-    h(doc, "span", {}, getString("permission-heading")),
-    learnMore,
-  );
   const panel = h(
     doc,
     "div",
@@ -100,7 +75,6 @@ export function createComposerPermissions(
       role: "menu",
       "aria-label": getString("permission-heading"),
     },
-    header,
     approval,
     readOnly,
     tagDeletion,
@@ -216,8 +190,7 @@ export function createComposerPermissions(
     position();
     render();
     panel.showPopover();
-    if (focusOption)
-      (writeAllowed() ? approval : readOnly).focus({ preventScroll: true });
+    if (focusOption) (writeAllowed() ? approval : readOnly).focus();
   }
 
   trigger.addEventListener("click", (event) => {
@@ -246,7 +219,7 @@ export function createComposerPermissions(
       close(true);
     } else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(key)) {
       event.preventDefault();
-      const options = [learnMore, approval, readOnly, tagDeletion].filter(
+      const options = [approval, readOnly, tagDeletion].filter(
         ({ disabled }) => !disabled,
       );
       const current = options.findIndex(
