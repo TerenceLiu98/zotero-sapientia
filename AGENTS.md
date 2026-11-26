@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-The root `README.md` identifies the project. Start with `docs/PRD.md` for the draft requirements of Zotero ACP Agent. The proposed desktop plugin supplies Zotero context to a user-selected agent through the Agent Client Protocol (ACP). The agent analyzes that context and generates content. The plugin applies changes, such as creating notes or adding tags, through the Zotero API.
+The root `README.md` identifies the project. Start with `docs/PRD.md` for the draft requirements of Sapientia. The proposed desktop plugin supplies Zotero context to a user-selected agent through the Agent Client Protocol (ACP). The agent analyzes that context and generates content. The plugin applies changes, such as creating notes or adding tags, through the Zotero API.
 
 ## Development and Verification
 

@@ -1,1 +1,1 @@
-pref-title = Zotero ACP Agent
+pref-title = Sapientia
