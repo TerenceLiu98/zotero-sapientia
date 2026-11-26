@@ -1,5 +1,5 @@
 import type * as acp from "@agentclientprotocol/sdk";
-import type { PaperContext, SelectedText } from "../context/paper";
+import type { PaperContext, SelectedText, TagItem } from "../context/paper";
 
 export interface AnswerSelection {
   answerId: string;
@@ -10,6 +10,7 @@ export type ChatSelection = SelectedText | AnswerSelection;
 
 export interface TurnContext {
   readonly paper?: PaperContext;
+  readonly tagItems?: readonly TagItem[];
   readonly selections: readonly ChatSelection[];
   readonly readSelection?: () => SelectedText | undefined;
 }

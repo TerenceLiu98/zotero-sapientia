@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { config } from "../../package.json";
-import type { PaperContext } from "../context/paper";
+import { findTagItem, type PaperContext, type TagItem } from "../context/paper";
 import {
   metadataSchema,
   prepareMetadata,
@@ -72,7 +72,7 @@ const operations = z
   .min(1)
   .max(50)
   .describe(
-    "Ordered batch. Identify non-current items by key or ID in the current library.",
+    "Ordered batch. Identify non-current items by key or ID in the current library. When tagging a multi-selection, identify each selected item explicitly.",
   );
 export const writeSchema = z.union([
   z.strictObject({ turnId, operations }),
@@ -212,32 +212,49 @@ function sanitizeNote(src: string): string {
 
 export async function prepareWrite(
   request: z.infer<typeof writeSchema>,
-  paper: PaperContext,
+  paper?: PaperContext,
+  tagItems?: readonly TagItem[],
 ): Promise<WriteProposal> {
-  const current = await resolveItem(paper);
+  const current = paper && (await resolveItem(paper));
+  if (!current && !tagItems?.length)
+    throw new Error("The write proposal requires paper context.");
   const operations: ApprovedChange[] = [];
+  const previewTags = new Map<number, Set<string>>();
   for (const operation of "operations" in request
     ? request.operations
     : [request]) {
     const { itemKey, itemID, libraryID } = operation;
-    if ((libraryID ?? current.libraryID) !== current.libraryID)
-      throw new Error(
-        "Write targets must belong to the current paper's library.",
-      );
-    const item =
-      itemID !== undefined
-        ? await Zotero.Items.getAsync(itemID)
-        : itemKey !== undefined
-          ? await Zotero.Items.getByLibraryAndKeyAsync(
-              current.libraryID,
-              itemKey,
-            )
-          : current;
+    let item: Zotero.Item | false | undefined;
+    if (tagItems?.length) {
+      if (
+        operation.operation !== "add_tags" &&
+        operation.operation !== "delete_tags"
+      )
+        throw new Error("A multi-item selection supports tag changes only.");
+      const selected = findTagItem(tagItems, operation);
+      if (!selected)
+        throw new Error("Tag changes must identify a selected Zotero item.");
+      item = await resolveItem(selected);
+    } else if (current) {
+      if ((libraryID ?? current.libraryID) !== current.libraryID)
+        throw new Error(
+          "Write targets must belong to the current paper's library.",
+        );
+      item =
+        itemID !== undefined
+          ? await Zotero.Items.getAsync(itemID)
+          : itemKey !== undefined
+            ? await Zotero.Items.getByLibraryAndKeyAsync(
+                current.libraryID,
+                itemKey,
+              )
+            : current;
+    }
     if (
       !item ||
       item.deleted ||
       item.isFeedItem ||
-      item.libraryID !== current.libraryID ||
+      (!tagItems?.length && item.libraryID !== current?.libraryID) ||
       (itemKey !== undefined && item.key !== itemKey) ||
       !item.isEditable() ||
       !item.isRegularItem()
@@ -273,15 +290,27 @@ export async function prepareWrite(
         break;
       }
       case "delete_tags":
-        if (!tagDeletionAllowed())
+      case "add_tags": {
+        const deleting = operation.operation === "delete_tags";
+        if (deleting && !tagDeletionAllowed())
           throw new Error("Tag deletion is disabled in Zotero settings.");
-      // Fall through to normalize tag names as Zotero does.
-      case "add_tags":
+        let proposed = previewTags.get(item.id);
+        if (!proposed) {
+          proposed = new Set(item.getTags().map(({ tag }) => tag));
+          previewTags.set(item.id, proposed);
+        }
+        const tags: string[] = [];
+        for (const tag of operation.change.tags) {
+          if (deleting ? !proposed.delete(tag) : proposed.has(tag)) continue;
+          if (!deleting) proposed.add(tag);
+          tags.push(tag);
+        }
         operations.push({
           target,
           operation: operation.operation,
-          change: { tags: [...new Set(operation.change.tags)] },
+          change: { tags },
         });
+      }
     }
   }
   return { operations };

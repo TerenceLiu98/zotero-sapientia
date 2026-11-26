@@ -179,12 +179,14 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
     const payload = isNote
       ? notePreview(content.html)
       : "tags" in content
-        ? h(
-            doc,
-            "ul",
-            { class: "sap-write-tags" },
-            ...content.tags.map((tag) => h(doc, "li", {}, tag)),
-          )
+        ? content.tags.length
+          ? h(
+              doc,
+              "ul",
+              { class: "sap-write-tags" },
+              ...content.tags.map((tag) => h(doc, "li", {}, tag)),
+            )
+          : getString("write-outcome-unchanged")
         : null;
     const fields =
       "fields" in content

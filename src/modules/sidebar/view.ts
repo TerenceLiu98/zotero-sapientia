@@ -226,9 +226,15 @@ export function createChatView(
       render(current, state, last) {
         if (lastMessage !== current) {
           lastMessage = current;
-          const title = current.context?.paper?.title;
+          const items = current.context?.tagItems;
+          const title =
+            current.context?.paper?.title ??
+            (items?.length
+              ? getString("context-selected-items", { count: items.length })
+              : undefined);
           source.hidden = !title;
           source.textContent = title ?? "";
+          source.title = items?.map((item) => item.title).join("\n") ?? "";
           thinking.render(current);
           answerText = current.blocks
             .flatMap((block) => (block.type === "text" ? [block.text] : []))

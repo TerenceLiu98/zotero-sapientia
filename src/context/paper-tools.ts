@@ -16,11 +16,13 @@ import {
 } from "../writes/metadata";
 import {
   describeAttachment,
+  findTagItem,
   paperAttachments,
   paperMetadata,
   pdfURI,
   type PaperContext,
   type SelectedText,
+  type TagItem,
 } from "./paper";
 
 export const READ_CURRENT_PAPER = "read_current_paper";
@@ -42,7 +44,8 @@ const pdfArgs = z.strictObject({
   endPage: page.optional(),
 });
 export interface ToolTurn {
-  paper: PaperContext;
+  paper?: PaperContext;
+  tagItems?: readonly TagItem[];
   readSelection?: () => SelectedText | undefined;
   signal: AbortSignal;
   recordPdfRead?(pages: readonly { uri: string; text: string }[]): void;
@@ -84,7 +87,8 @@ const readers = {
   },
   read_paper_tags: {
     material: "tags",
-    description: "Read the current paper's tags.",
+    description:
+      "Read the current paper's tags. For a tagging turn with multiple selected papers, omit the item identifier to read all selected papers' tags, or pass itemID or itemKey for one.",
     schema: z.strictObject(target),
   },
 } satisfies Record<
@@ -137,8 +141,16 @@ function toolResult(value: object) {
   return { content: toolText(JSON.stringify(value)) };
 }
 
-function currentItem(turn: ToolTurn, args: z.infer<typeof pdfArgs>) {
-  const { paper } = turn;
+function paperTags(item: Zotero.Item) {
+  return {
+    itemID: item.id,
+    itemKey: item.key,
+    libraryID: item.libraryID,
+    tags: item.getTags(),
+  };
+}
+
+function currentItem(paper: TagItem, args: z.infer<typeof pdfArgs>) {
   if (
     (args.itemKey !== undefined && args.itemKey !== paper.itemKey) ||
     (args.itemID !== undefined && args.itemID !== paper.itemID) ||
@@ -278,7 +290,11 @@ export async function callPaperTool(
         "The write proposal requires an active turn with a paper.",
       );
     try {
-      const proposal = await prepareWrite(parsed.data, turn.paper);
+      const proposal = await prepareWrite(
+        parsed.data,
+        turn.paper,
+        turn.tagItems,
+      );
       if (!writeAllowed()) return toolError("Zotero is in read-only mode.");
       const result = await handoff(proposal, turn.signal);
       return toolResult({
@@ -306,10 +322,25 @@ export async function callPaperTool(
   const args = parsed.data;
   const { material } = reader;
   const turn = active(args.turnId);
-  const item = turn && currentItem(turn, args);
-  if (!turn || !item)
+  if (turn?.tagItems?.length && material === "tags") {
+    if (args.itemID !== undefined || args.itemKey !== undefined) {
+      const target = findTagItem(turn.tagItems, args);
+      const item = target && currentItem(target, args);
+      return item
+        ? toolResult(paperTags(item))
+        : toolError("The requested target is outside the active turn.");
+    }
+    return toolResult({
+      items: turn.tagItems.flatMap((target) => {
+        const item = currentItem(target, args);
+        return item ? [paperTags(item)] : [];
+      }),
+    });
+  }
+  const paper = turn?.paper;
+  const item = paper && currentItem(paper, args);
+  if (!turn || !paper || !item)
     return toolError("The requested target is outside the active turn.");
-  const { paper } = turn;
   const identity = {
     itemID: item.id,
     itemKey: item.key,
@@ -367,7 +398,7 @@ export async function callPaperTool(
           })),
       });
     case "tags":
-      return toolResult({ ...identity, tags: item.getTags() });
+      return toolResult(paperTags(item));
     default: {
       const attachment = currentAttachment(item, paper, args);
       if (!attachment)
@@ -418,7 +449,7 @@ export async function callPaperTool(
       }
       const authorized = () => {
         const current = active(args.turnId);
-        const target = current && currentItem(current, args);
+        const target = current?.paper && currentItem(current.paper, args);
         return (
           current?.signal === turn.signal &&
           !!target &&

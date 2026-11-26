@@ -35,6 +35,7 @@ composer-agent-model = Agent 和模型
 composer-models = 模型
 composer-models-loading = 正在加载模型…
 context-selection-number = 所选文字 { $number }
+context-selected-items = 已选中 { $count } 个条目
 context-add-selection = Ask Agent
 context-remove-selection = 移除选区
 context-selection-source = { $title } · 第 { $page } 页
