@@ -341,12 +341,6 @@ function fixturePaper(
       itemKey: attachmentKey,
       uri: `zotero://open-pdf/library/items/${attachmentKey}`,
     },
-    materials: {
-      metadata: true,
-      pdfText: true,
-      selectedText: true,
-      annotations: false,
-    },
   };
 }
 

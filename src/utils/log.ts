@@ -3,11 +3,6 @@ import { Redactor } from "../agents/secrets";
 /** Every line the plugin writes goes through here, so secrets never reach the log. */
 export const redactor = new Redactor();
 
-/** Logs a diagnostic detail (Zotero debug level 5). */
-export function logDebug(message: string): void {
-  Zotero.debug(`[sapientia] ${redactor.redact(message)}`);
-}
-
 /** Logs something that went wrong without stopping the plugin (level 3). */
 export function logWarn(message: string, error?: unknown): void {
   write(3, message, error);

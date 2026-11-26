@@ -18,6 +18,7 @@ import {
   describeAttachment,
   findTagItem,
   paperAttachments,
+  paperIdentity,
   paperMetadata,
   pdfURI,
   type PaperContext,
@@ -143,9 +144,7 @@ function toolResult(value: object) {
 
 function paperTags(item: Zotero.Item) {
   return {
-    itemID: item.id,
-    itemKey: item.key,
-    libraryID: item.libraryID,
+    ...paperIdentity(item),
     tags: item.getTags(),
   };
 }
@@ -341,12 +340,6 @@ export async function callPaperTool(
   const item = paper && currentItem(paper, args);
   if (!turn || !paper || !item)
     return toolError("The requested target is outside the active turn.");
-  const identity = {
-    itemID: item.id,
-    itemKey: item.key,
-    libraryID: item.libraryID,
-  };
-
   switch (material) {
     case "metadata": {
       const metadata = paperMetadata(item);
@@ -389,7 +382,7 @@ export async function callPaperTool(
     }
     case "notes":
       return toolResult({
-        ...identity,
+        ...paperIdentity(item),
         notes: Zotero.Items.get(item.getNotes())
           .filter((note) => !note.deleted)
           .map((note) => ({

@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { config } from "../../package.json";
-import { findTagItem, type PaperContext, type TagItem } from "../context/paper";
+import {
+  findTagItem,
+  paperIdentity,
+  type PaperContext,
+  type TagItem,
+} from "../context/paper";
 import {
   metadataSchema,
   prepareMetadata,
@@ -139,15 +144,6 @@ export type WriteHandoff = (
   signal: AbortSignal,
 ) => Promise<WriteResult | void>;
 
-export function itemIdentity(item: Zotero.Item): ItemIdentity {
-  return {
-    itemID: item.id,
-    itemKey: item.key,
-    libraryID: item.libraryID,
-    title: item.getDisplayTitle(),
-  };
-}
-
 export async function resolveItem(target: ItemIdentity): Promise<Zotero.Item> {
   const item = await Zotero.Items.getAsync(target.itemID);
   if (
@@ -262,7 +258,7 @@ export async function prepareWrite(
       throw new Error(
         "A write target is not an editable paper in the current library.",
       );
-    const target = itemIdentity(item);
+    const target = { ...paperIdentity(item), title: item.getDisplayTitle() };
     switch (operation.operation) {
       case "update_metadata":
         operations.push({

@@ -12,11 +12,13 @@
 
 ## Project Structure
 
-The root `README.md` identifies the project. Start with `docs/PRD.md` for the draft requirements of Sapientia. The proposed desktop plugin supplies Zotero context to a user-selected agent through the Agent Client Protocol (ACP). The agent analyzes that context and generates content. The plugin applies changes, such as creating notes or adding tags, through the Zotero API.
+Start with `README.md` for setup and `docs/PRD.md` for product requirements. Sapientia connects Zotero to a user-selected agent through the Agent Client Protocol (ACP). The source is in `src/`, the Zotero bootstrap and resources are in `addon/`, and integration tests and fixtures are in `test/`. Keep session handling, Zotero tools, write approvals, and the UI in their respective modules.
 
 ## Development and Verification
 
-The repository currently contains documentation only. It has no plugin source, assets, local run command, build scripts, automated test suite, or coverage target.
+Use Node.js 22 and `npm ci`. Run `npm start` for local development or `npm run build` to package the plugin. Run `npm run lint:check`, `npm run test:typecheck`, and `npm test` to verify changes. `npm test` uses an isolated Zotero profile and library. Set `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` to a Zotero 10 executable when needed.
+
+Use the GitHub Actions build and release procedure in `README.md` for distributable packages.
 
 Preview changed Markdown in your editor. Check that headings nest correctly, table rows render under the intended columns, and links open their targets. Run `git diff --check` for whitespace errors in unstaged changes to tracked files. After staging new or edited documents, run `git diff --cached --check` to check what the commit will include.
 
@@ -26,4 +28,4 @@ When editing the PRD, follow its Chinese prose and numbered heading hierarchy. R
 
 ## Commits and Pull Requests
 
-The history contains only `first commit`, so there is no established commit message convention. Use a descriptive subject such as `Clarify PDF annotation scope`. In a pull request, identify the affected requirement, explain why it changed, and link the related issue when one exists.
+Use a descriptive commit subject such as `Clarify PDF annotation scope`. In a pull request, identify the affected requirement, explain why it changed, link the related issue, and record the checks that passed.
