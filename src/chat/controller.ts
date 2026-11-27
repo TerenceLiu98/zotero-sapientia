@@ -6,6 +6,7 @@ import { defaultWorkspace, resolveLaunchSpec } from "../agents/launch";
 import {
   getDefaultProfile,
   getDefaultProfileId,
+  getLibraryDefaultModel,
   loadProfiles,
   mergeProfiles,
   setDefaultProfileId,
@@ -109,6 +110,7 @@ export class ChatController {
   constructor(
     private readonly writeHandoff?: WriteHandoff,
     readonly library = false,
+    private readonly libraryThreadId?: string,
   ) {
     if (library)
       this.state.libraryWrites = { direct: false, tagDeletion: false };
@@ -124,7 +126,9 @@ export class ChatController {
   }
 
   get selectedProfileId(): string {
-    return this.library ? this.libraryProfileId : getDefaultProfileId();
+    return this.library
+      ? this.libraryProfileId || getLibraryDefaultModel()?.profileId || ""
+      : getDefaultProfileId();
   }
 
   setLibraryWrites(patch: Partial<NonNullable<ChatState["libraryWrites"]>>) {
@@ -134,11 +138,13 @@ export class ChatController {
 
   loadLibrary(): Promise<void> {
     if (!this.library) return Promise.resolve();
-    return (this.libraryLoaded ??= loadLibrarySession()
+    return (this.libraryLoaded ??= loadLibrarySession(this.libraryThreadId)
       .then((snapshot) => {
         if (!snapshot) return;
         const { messages, profileId, sessionId } = snapshot;
-        this.libraryProfileId = profileId;
+        this.libraryProfileId = messages.length
+          ? profileId
+          : (getLibraryDefaultModel()?.profileId ?? profileId);
         this.nextMessageNumber =
           1 +
           messages.reduce((max, { id }) => Math.max(max, Number(id) || 0), 0);
@@ -154,15 +160,21 @@ export class ChatController {
   private persistLibrary(): void {
     if (!this.library) return;
     const profileId = this.libraryProfileId;
+    const remembered = this.restorableSession;
     const sessionId = this.recap
       ? null
-      : (this.sessionId ?? this.restorableSession?.id ?? null);
+      : (this.sessionId ??
+        (remembered?.profileId === profileId ? remembered.id : null));
     const snapshot = { messages: this.state.messages, profileId, sessionId };
     this.librarySave = this.librarySave
-      .then(() => saveLibrarySession(snapshot))
+      .then(() => saveLibrarySession(snapshot, this.libraryThreadId))
       .catch((error) =>
         logError("Could not save the Library Agent conversation", error),
       );
+  }
+
+  flushLibrary(): Promise<void> {
+    return this.librarySave;
   }
 
   getState(): ChatState {
@@ -195,6 +207,18 @@ export class ChatController {
   /** Start the selected session when the sidebar opens, before the first prompt. */
   async warm(): Promise<void> {
     if (this.library) await this.loadLibrary();
+    const preferred = this.library && getLibraryDefaultModel();
+    if (this.library && !preferred) return;
+    if (
+      preferred &&
+      (this.state.connection === "disconnected" ||
+        this.state.connection === "error")
+    ) {
+      if (!this.state.messages.length)
+        this.libraryProfileId = preferred.profileId;
+      await this.connect();
+      return;
+    }
     if (this.state.connection !== "disconnected" || this.state.canRestore)
       return;
     if (!loadProfiles().length && !(await discoverAgentProfiles()).length)
@@ -544,9 +568,11 @@ export class ChatController {
       (!defaultId && saved.length)
         ? saved
         : mergeProfiles(saved, await discoverAgentProfiles());
-    const profile =
-      available.find((entry) => entry.id === defaultId) ??
-      (this.library ? getDefaultProfile(available) : available[0]);
+    const requested = available.find((entry) => entry.id === defaultId);
+    const requirePreferred =
+      this.library && defaultId === getLibraryDefaultModel()?.profileId;
+    const fallback = this.library ? getDefaultProfile(available) : available[0];
+    const profile = requested ?? (requirePreferred ? undefined : fallback);
     if (signal.aborted) return false;
     if (!profile) {
       return this.fail(new UserError("agent-not-configured"));
@@ -661,8 +687,11 @@ export class ChatController {
         this.sessionId = restoreId;
         this.restorableSession = null;
         this.recap = "";
-        if (response.configOptions)
-          this.update(sessionChoicesFromConfig(response.configOptions));
+        await this.loadSessionConfig(
+          connection,
+          restoreId,
+          response.configOptions,
+        );
         return;
       }
     }
@@ -675,8 +704,35 @@ export class ChatController {
     if (this.connection !== connection) return;
     this.sessionId = sessionId;
     this.restorableSession = null;
-    this.update(sessionChoicesFromConfig(configOptions));
+    await this.loadSessionConfig(connection, sessionId, configOptions);
     this.persistLibrary();
+  }
+
+  private async loadSessionConfig(
+    connection: AgentConnection,
+    sessionId: string,
+    configOptions: acp.SessionConfigOption[] | null | undefined,
+  ): Promise<void> {
+    if (configOptions) this.update(sessionChoicesFromConfig(configOptions));
+    const preferred = this.library && getLibraryDefaultModel();
+    if (!preferred || preferred.profileId !== this.profileId) return;
+    const models = this.state.models;
+    if (!models?.options.some(({ id }) => id === preferred.modelId))
+      throw new UserError("library-default-model-unavailable", {
+        model: preferred.modelId,
+      });
+    if (models.currentId === preferred.modelId) return;
+    const configured = await connection.setConfigOption(
+      sessionId,
+      models.configId,
+      preferred.modelId,
+    );
+    if (this.connection !== connection || this.sessionId !== sessionId) return;
+    this.update(sessionChoicesFromConfig(configured.configOptions));
+    if (this.state.models?.currentId !== preferred.modelId)
+      throw new UserError("library-default-model-unavailable", {
+        model: preferred.modelId,
+      });
   }
 
   private handleEvent(event: AgentEvent): void {

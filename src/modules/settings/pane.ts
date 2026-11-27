@@ -22,6 +22,7 @@ import { getString, type MessageId } from "../../utils/locale";
 import { agentIcon } from "../ui/agent-icon";
 import { h, iconButton, lucideIcon } from "../ui/dom";
 import { SURFACE_STYLES } from "../ui/styles";
+import { createLibraryModelSettings } from "./library-model";
 import { SETTINGS_STYLES } from "./styles";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
@@ -128,6 +129,7 @@ export function renderSettingsPane(
   );
   addButton.prepend(lucideIcon(doc, Plus, 15));
   const addEditor = h(doc, "div");
+  const libraryModel = createLibraryModelSettings(doc, closeEditor);
   const root = h(
     doc,
     "div",
@@ -229,6 +231,7 @@ export function renderSettingsPane(
 
   /** Opens the editor on an agent, or on a blank one when given "". */
   function startEditing(profileId: string): void {
+    libraryModel.close();
     const known = mergeProfiles(profiles, detected).find(
       (profile) => profile.id === profileId,
     );
@@ -354,6 +357,7 @@ export function renderSettingsPane(
 
   function renderList(): void {
     const available = mergeProfiles(profiles, detected);
+    libraryModel.render(available);
     const detectedIDs = new Set(detected.map(({ id }) => id));
     const ordered = [
       ...detected.map((profile) =>
@@ -458,6 +462,7 @@ export function renderSettingsPane(
               getString("prefs-no-agent"),
             ),
           ]),
+      libraryModel.element,
     );
     addButton.hidden = draft?.id === "";
     if (addButton.hidden) {
@@ -493,6 +498,7 @@ export function renderSettingsPane(
       return;
     }
     disposed = true;
+    libraryModel.dispose();
     doc.defaultView?.removeEventListener("unload", dispose);
     Zotero.Prefs.unregisterObserver(profileObserver);
     Zotero.Prefs.unregisterObserver(defaultObserver);

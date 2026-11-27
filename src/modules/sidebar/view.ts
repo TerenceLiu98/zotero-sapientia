@@ -1,8 +1,11 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import {
+  FolderPlus,
   MessageSquareText,
   Power,
   RotateCcw,
+  ScanSearch,
+  Search,
   Settings,
   SquarePen,
   X,
@@ -165,10 +168,62 @@ export function createChatView(
     context.clear();
     void chat.newConversation();
   });
+  function libraryShortcut(
+    label: MessageId,
+    prompt: MessageId,
+    glyph: IconNode,
+  ) {
+    return h(
+      doc,
+      "button",
+      {
+        type: "button",
+        click: () => {
+          if (!composer.input.value.trim()) {
+            composer.input.value = getString(prompt);
+            composer.input.dispatchEvent(new doc.defaultView!.Event("input"));
+          }
+          composer.input.focus();
+        },
+      },
+      lucideIcon(doc, glyph, 15),
+      getString(label),
+    );
+  }
+  const libraryHeading = chat.library
+    ? h(
+        doc,
+        "h1",
+        { class: "sap-library-heading" },
+        getString("library-home-title"),
+      )
+    : null;
+  const libraryShortcuts = chat.library
+    ? h(
+        doc,
+        "div",
+        { class: "sap-library-shortcuts" },
+        libraryShortcut(
+          "library-find-papers",
+          "library-find-papers-prompt",
+          Search,
+        ),
+        libraryShortcut(
+          "library-organize",
+          "library-organize-prompt",
+          FolderPlus,
+        ),
+        libraryShortcut(
+          "library-check-metadata",
+          "library-check-metadata-prompt",
+          ScanSearch,
+        ),
+      )
+    : null;
   const root = h(
     doc,
     "div",
-    { class: "sap-chat" },
+    { class: chat.library ? "sap-chat sap-library-chat" : "sap-chat" },
     h(
       doc,
       "div",
@@ -178,7 +233,7 @@ export function createChatView(
         "div",
         { class: "sap-chat-actions" },
         onClose ? button("action-close-pane", X, onClose) : null,
-        newConversation,
+        chat.library ? null : newConversation,
         connect,
         reconnect,
         disconnect,
@@ -193,7 +248,16 @@ export function createChatView(
     context.element,
     permissionRequest,
     writeReview.element,
-    composer.element,
+    chat.library
+      ? h(
+          doc,
+          "div",
+          { class: "sap-library-compose" },
+          libraryHeading,
+          composer.element,
+          libraryShortcuts,
+        )
+      : composer.element,
     answerSelection.element,
   );
 
@@ -345,6 +409,13 @@ export function createChatView(
 
   function render(state: ChatState) {
     root.dataset.connection = state.connection;
+    if (chat.library) {
+      const empty = state.messages.length === 0;
+      root.dataset.empty = String(empty);
+      transcript.hidden = empty;
+      libraryHeading!.hidden = !empty;
+      libraryShortcuts!.hidden = !empty;
+    }
     agentName.textContent = state.agentName ?? getString("chat-title");
     const statusId =
       state.connection === "connected" && state.execution !== "idle"

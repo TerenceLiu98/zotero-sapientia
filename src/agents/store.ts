@@ -3,6 +3,40 @@ import { logError } from "../utils/log";
 import { parseProfile, type AgentProfile } from "./profile";
 
 const PREFS = config.prefsPrefix;
+export const LIBRARY_DEFAULT_MODEL_PREF = `${PREFS}.libraryDefaultModel`;
+
+export interface LibraryDefaultModel {
+  profileId: string;
+  modelId: string;
+}
+
+export function getLibraryDefaultModel(): LibraryDefaultModel | null {
+  const raw = Zotero.Prefs.get(LIBRARY_DEFAULT_MODEL_PREF, true);
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const value = JSON.parse(raw);
+    if (
+      typeof value?.profileId === "string" &&
+      value.profileId &&
+      typeof value.modelId === "string" &&
+      value.modelId
+    )
+      return { profileId: value.profileId, modelId: value.modelId };
+  } catch (error) {
+    logError("The Library Agent default model could not be read", error);
+  }
+  return null;
+}
+
+export function setLibraryDefaultModel(
+  value: LibraryDefaultModel | null,
+): void {
+  Zotero.Prefs.set(
+    LIBRARY_DEFAULT_MODEL_PREF,
+    value ? JSON.stringify(value) : "",
+    true,
+  );
+}
 
 /** Reads the saved agents. A list that cannot be read is treated as empty. */
 export function loadProfiles(): AgentProfile[] {

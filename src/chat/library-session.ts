@@ -8,9 +8,44 @@ export interface LibrarySession {
   sessionId: string | null;
 }
 
+export const DEFAULT_LIBRARY_THREAD_ID = "default";
+
 const FILE_NAME = "sapientia-library-session.json";
+const HISTORY_FILE_NAME = "sapientia-library-history.json";
+const THREAD_DIRECTORY = "sapientia-library-threads";
 const MAX_RECAP_TURNS = 12;
 const MAX_RECAP_BYTES = 48 * 1024;
+
+const threadId = z.union([z.literal(DEFAULT_LIBRARY_THREAD_ID), z.uuid()]);
+const threadSummary = z.object({
+  id: threadId,
+  title: z.string(),
+  updatedAt: z.number(),
+});
+const history = z.object({
+  activeThreadId: threadId,
+  threads: threadSummary.array(),
+});
+
+export type LibraryThreadSummary = z.infer<typeof threadSummary>;
+
+export function createLibraryThreadId(): string {
+  return Services.uuid.generateUUID().toString().slice(1, -1);
+}
+
+function threadDirectory() {
+  return PathUtils.join(PathUtils.profileDir, THREAD_DIRECTORY);
+}
+
+function sessionPath(id: string) {
+  return threadId.parse(id) === DEFAULT_LIBRARY_THREAD_ID
+    ? PathUtils.join(PathUtils.profileDir, FILE_NAME)
+    : PathUtils.join(threadDirectory(), `${id}.json`);
+}
+
+function historyPath() {
+  return PathUtils.join(PathUtils.profileDir, HISTORY_FILE_NAME);
+}
 
 const context = z.object({
   selections: z.array(
@@ -70,8 +105,10 @@ const session = z.object({
   sessionId: z.string().nullable(),
 });
 
-export async function loadLibrarySession(): Promise<LibrarySession | null> {
-  const path = PathUtils.join(PathUtils.profileDir, FILE_NAME);
+export async function loadLibrarySession(
+  id = DEFAULT_LIBRARY_THREAD_ID,
+): Promise<LibrarySession | null> {
+  const path = sessionPath(id);
   try {
     if (!(await IOUtils.exists(path))) return null;
     const { messages, profileId, sessionId } = session.parse(
@@ -97,12 +134,95 @@ export async function loadLibrarySession(): Promise<LibrarySession | null> {
   }
 }
 
-export async function saveLibrarySession({
-  messages,
-  profileId,
-  sessionId,
-}: LibrarySession): Promise<void> {
-  const path = PathUtils.join(PathUtils.profileDir, FILE_NAME);
+let pendingHistoryWrite = Promise.resolve();
+
+function updateHistory(update: () => Promise<void>): Promise<void> {
+  const result = pendingHistoryWrite.then(update);
+  pendingHistoryWrite = result.catch(() => {});
+  return result;
+}
+
+async function readHistory(): Promise<z.infer<typeof history>> {
+  try {
+    if (await IOUtils.exists(historyPath()))
+      return history.parse(await IOUtils.readJSON(historyPath()));
+  } catch (error) {
+    logWarn("Could not read the Library Agent history", error);
+  }
+  return { activeThreadId: DEFAULT_LIBRARY_THREAD_ID, threads: [] };
+}
+
+function summarizeThread(
+  id: string,
+  messages: readonly ChatMessage[],
+  fallbackTime: number,
+): LibraryThreadSummary | undefined {
+  const first = messages.find((entry) => entry.role === "user");
+  const title = first?.text.trim().replace(/\s+/g, " ");
+  if (!title) return;
+  const latestTurn = messages.findLast(
+    (entry) => entry.role === "assistant" && entry.startedAt !== undefined,
+  );
+  return {
+    id,
+    title: Array.from(title).slice(0, 100).join(""),
+    updatedAt:
+      (latestTurn?.role === "assistant" && latestTurn.startedAt) ||
+      fallbackTime,
+  };
+}
+
+export async function loadLibraryHistory(): Promise<z.infer<typeof history>> {
+  await pendingHistoryWrite;
+  const stored = await readHistory();
+  const directory = threadDirectory();
+  const paths = (await IOUtils.exists(directory))
+    ? await IOUtils.getChildren(directory)
+    : [];
+  const ids = paths.flatMap((path) => {
+    const name = PathUtils.filename(path);
+    const id = name.slice(0, -5);
+    return name.endsWith(".json") && z.uuid().safeParse(id).success ? [id] : [];
+  });
+  if (await IOUtils.exists(sessionPath(DEFAULT_LIBRARY_THREAD_ID)))
+    ids.push(DEFAULT_LIBRARY_THREAD_ID);
+  const indexed = new Map(stored.threads.map((entry) => [entry.id, entry]));
+  // A snapshot can reach disk before its summary if Zotero stops during a save.
+  const threads = await Promise.all(
+    ids.map(async (id) => {
+      const known = indexed.get(id);
+      if (known) return known;
+      const saved = await loadLibrarySession(id);
+      if (!saved) return;
+      const { lastModified } = await IOUtils.stat(sessionPath(id));
+      return summarizeThread(id, saved.messages, lastModified ?? 0);
+    }),
+  );
+  return {
+    activeThreadId: stored.activeThreadId,
+    threads: threads
+      .filter((entry) => entry !== undefined)
+      .sort(
+        (left, right) =>
+          right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
+      ),
+  };
+}
+
+export function setActiveLibraryThread(id: string): Promise<void> {
+  const activeThreadId = threadId.parse(id);
+  return updateHistory(async () => {
+    const stored = await readHistory();
+    if (stored.activeThreadId !== activeThreadId)
+      await writeJSON(historyPath(), { ...stored, activeThreadId });
+  });
+}
+
+export async function saveLibrarySession(
+  { messages, profileId, sessionId }: LibrarySession,
+  id = DEFAULT_LIBRARY_THREAD_ID,
+): Promise<void> {
+  const path = sessionPath(id);
   const snapshot = session.parse({
     version: 1,
     profileId,
@@ -116,6 +236,29 @@ export async function saveLibrarySession({
           },
     ),
   });
+  return updateHistory(async () => {
+    const stored = await readHistory();
+    const before = stored.threads.find((entry) => entry.id === id);
+    const after = summarizeThread(
+      id,
+      messages,
+      before?.updatedAt ?? Date.now(),
+    );
+    if (id !== DEFAULT_LIBRARY_THREAD_ID)
+      await IOUtils.makeDirectory(threadDirectory(), { ignoreExisting: true });
+    await writeJSON(path, snapshot);
+    if (
+      before?.title === after?.title &&
+      before?.updatedAt === after?.updatedAt
+    )
+      return;
+    const threads = stored.threads.filter((entry) => entry.id !== id);
+    if (after) threads.push(after);
+    await writeJSON(historyPath(), { ...stored, threads });
+  });
+}
+
+async function writeJSON(path: string, snapshot: object): Promise<void> {
   await IOUtils.writeJSON(path, snapshot, {
     tmpPath: `${path}.tmp`,
     flush: true,
