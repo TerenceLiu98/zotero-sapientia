@@ -59,3 +59,10 @@ GitHub Actions runs lint, type checking, the isolated Zotero fixture suite, and 
 3. Download `sapientia.xpi` and `sapientia.xpi.sha256` from the release, check the files with `shasum -a 256 -c sapientia.xpi.sha256`, and install the XPI through Zotero's **Tools > Plugins** menu.
 
 To switch from a beta to `v0.1`, install the stable XPI manually. Zotero sorts `v0.1` below the beta versions.
+
+## Acknowledgments
+
+- Thanks to [zotero-mcp](https://github.com/54yyyu/zotero-mcp) for examples of Zotero tools, PDF page reads, and citation navigation.
+- Thanks to [llm-for-zotero](https://github.com/yilewang/llm-for-zotero) for examples of reader interactions, write approvals, and undo.
+- Thanks to [zotero-plugin-template](https://github.com/windingwind/zotero-plugin-template) for the Zotero plugin bootstrap example.
+- Thanks to [cc-llm4zotero-adapter](https://github.com/jianghao-zhang/cc-llm4zotero-adapter) for an example of connecting an external agent to Zotero through a local bridge.

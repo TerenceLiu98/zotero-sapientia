@@ -1,7 +1,7 @@
 # PRD：Sapientia 插件
 
 - **产品名称**：Sapientia
-- **文档版本**：v0.2（精简限制性表述，新增参考项目）
+- **文档版本**：v0.2
 - **状态**：初稿
 - **产品形态**：Zotero 桌面端插件
 - **核心协议**：Agent Client Protocol（ACP）
@@ -50,9 +50,7 @@ Agent 自身负责模型调用、推理、论文分析、内容生成和任务�
 
 ---
 
-## 2. 产品目标与参考项目
-
-### 2.1 产品目标
+## 2. 产品目标
 
 | 目标 | 描述 |
 |---|---|
@@ -62,38 +60,6 @@ Agent 自身负责模型调用、推理、论文分析、内容生成和任务�
 | 笔记管理 | 让 Agent 创建、整理和修改 Zotero 笔记 |
 | 标签管理 | 让 Agent 分析论文并建议、添加标签 |
 | 数据安全 | 对写入和修改 Zotero 数据的操作进行权限控制 |
-
-### 2.2 参考项目
-
-| 项目 | 定位 | 对本项目的参考价值 |
-|---|---|---|
-| [54yyyu/zotero-mcp](https://github.com/54yyyu/zotero-mcp) | 将 Zotero 文献库开放给各类 AI Agent 的 MCP Server，同时提供 `zotero-cli`、Agent Skill，以及 Zotero 内的 "Zotero Agent" 聊天面板插件 | Zotero 工具集设计；PDF 按页读取；批注与笔记读写；本地 API 与 Web API 的读写模式；"聊天面板 + 用户自有 Agent" 的产品形态；引用链接跳转 |
-| [yilewang/llm-for-zotero](https://github.com/yilewang/llm-for-zotero) | 在 Zotero 阅读器中接入 LLM 的研究 Agent 插件，支持 API Provider、本地模型、Codex App Server 与 Claude Code | 阅读器侧边栏 UI；选中文本、截图等上下文入口；Agent 模式下的读写工具分级、确认卡片与撤销；通过本地 Bridge 接入外部 Agent；基于 zotero-plugin-template 的插件工程 |
-
-#### 可借鉴的具体设计
-
-**来自 zotero-mcp**
-
-- **工具集**：检索、读取元数据与全文、按页范围读取、批注提取与创建、笔记、标签、集合等，可作为 Zotero 工具接口（第 5 章）的参照。
-- **Zotero Agent 面板**：由用户自己的 Claude Code、Codex 等驱动，感知当前打开的条目、页码和选区；回答中的引用使用 `zotero://` 链接，点击即可打开 PDF 对应页。
-- **读写通道**：本地模式下读取直接来自 Zotero 本地数据，写入通过运行中的 Zotero（本地授权）或 Web API 完成。
-- **按需加载**：工具分组（toolsets）与 CLI + Skill 的方式可以降低上下文开销，工具暴露策略可参考。
-- **许可证**：MCP Server 与 CLI 为 MIT，Zotero Agent 插件部分为 AGPL-3.0-or-later；复用代码前需按对应许可证处理。
-
-**来自 llm-for-zotero**
-
-- **阅读器侧边栏**：当前 PDF、选中文本、截图、附加文件都可作为对话上下文；选中文本可一键加入对话。
-- **引用跳转**：回答中的引用可点击跳回 Zotero 中的原文位置。
-- **读写分级**：读取类工具不受限制；写入类工具通过确认卡片审阅，并记录变更历史，支持撤销。
-- **外部 Agent 接入**：Claude Code 通过独立的本地 Bridge（Node.js 适配器）接入，可作为本项目 Sidecar 方案的先例；其 README 说明该模式目前尚不支持原生 Zotero API 操作，本项目需在工具通道上补齐这一点。
-- **笔记体验**：支持保存回答到 Zotero 笔记，也支持写入 Obsidian / Logseq 等本地 Markdown 目录。
-- **PDF 解析**：可选接入 MinerU，提升表格、公式、图表的解析质量。
-- **外部 MCP 入口**：插件在 Zotero 运行期间提供带 Bearer 认证的 MCP 端点，供外部 MCP 客户端使用。
-- **工程基础**：基于 [zotero-plugin-template](https://github.com/windingwind/zotero-plugin-template) 构建。
-
-#### 本项目的差异点
-
-两个参考项目的 README 中均未提及 ACP。本项目以 **ACP 作为统一的 Agent 接入协议**，让任何支持 ACP 的 Agent 都能在 Zotero 中使用，Zotero 工具能力则优先通过 MCP 复用现有成果（如 zotero-mcp）。
 
 ---
 
@@ -186,7 +152,7 @@ Agent 自身负责模型调用、推理、论文分析、内容生成和任务�
 
 具体连接方式需要根据目标 Agent 的 ACP 实现和运行环境确定。
 
-如果 Agent 采用 stdio 传输方式，而 Zotero 插件环境无法直接管理其进程，则通过独立的 Node.js Sidecar 负责进程启动和 ACP 通信（可参考 llm-for-zotero 通过本地 Bridge 接入 Claude Code 的做法）。
+如果 Agent 采用 stdio 传输方式，而 Zotero 插件环境无法直接管理其进程，则通过独立的 Node.js Sidecar 负责进程启动和 ACP 通信。
 
 用户的 Agent 若已具备相应能力（如 MCP 工具），优先复用。
 
@@ -235,7 +201,7 @@ Agent 自身负责模型调用、推理、论文分析、内容生成和任务�
 4. 获取当前选中的 PDF 文本。
 5. 获取 PDF 中已有的批注和高亮。
 
-对于较长 PDF，优先使用按页或按范围读取的方式（参考 zotero-mcp 的页范围读取），分批向 Agent 提供文本。
+对于较长 PDF，优先按页或按页码范围分批向 Agent 提供文本。
 
 ### 阅读方式
 
@@ -252,7 +218,7 @@ Agent 自身负责模型调用、推理、论文分析、内容生成和任务�
 
 Agent 可以在回答中提供论文页码或章节信息。
 
-插件应尽可能保留 PDF 页面与文本之间的对应关系，并支持点击引用跳转到 PDF 对应位置（参考 zotero-mcp 的 `zotero://` 引用链接与 llm-for-zotero 的引用跳转）。
+插件应尽可能保留 PDF 页面与文本之间的对应关系，并支持通过 `zotero://` 引用链接跳转到 PDF 对应位置。
 
 ### 验收标准
 
@@ -438,7 +404,7 @@ Agent 可以根据论文内容提出：
 
 插件提供有限且明确的 Zotero 操作接口。
 
-Agent 通过 ACP 与插件建立交互；Zotero 工具通过 MCP 暴露，优先复用 [zotero-mcp](https://github.com/54yyyu/zotero-mcp) 已有的工具集，由独立的 Zotero MCP Adapter 或现有 MCP Server 提供服务。
+Agent 通过 ACP 与插件交互。Zotero 工具通过 MCP 暴露，可由独立适配器或已有的 MCP 服务提供。
 
 ### 5.2 工具权限
 
@@ -462,7 +428,7 @@ Agent 通过 ACP 与插件建立交互；Zotero 工具通过 MCP 暴露，优先
 
 读取类操作默认允许，并提供用户可配置的权限范围。
 
-写入类操作默认需要用户确认，确认界面参考 llm-for-zotero 的确认卡片，并记录变更历史以支持撤销。
+写入类操作默认需要用户在确认卡片中审阅并批准。插件记录变更历史以支持撤销。
 
 对于批量修改，明确展示操作对象和修改内容，并允许用户取消。
 
@@ -519,11 +485,11 @@ Sapientia
 | 模块 | 技术 |
 |---|---|
 | 插件开发 | TypeScript |
-| 插件脚手架 | [zotero-plugin-template](https://github.com/windingwind/zotero-plugin-template)（llm-for-zotero 同款） |
+| 插件脚手架 | Zotero 插件构建脚手架 |
 | 插件运行环境 | Zotero Plugin API |
 | UI | Zotero 原生 UI / DOM |
 | Agent 通信 | ACP |
-| 工具协议 | MCP（可选），可复用 zotero-mcp |
+| 工具协议 | MCP（可选） |
 | 进程管理 | Node.js Sidecar（按需） |
 | PDF 读取 | Zotero PDF 能力 |
 | 数据持久化 | Zotero 自身数据库及插件配置 |
@@ -535,7 +501,7 @@ ACP 用于连接 Agent，负责会话、Prompt、消息更新和任务取消等�
 
 MCP 用于向 Agent 提供工具能力，例如读取论文、获取批注、创建笔记和添加标签。
 
-如果用户的 Agent 已经能够通过其他方式访问 Zotero 工具（例如已配置 zotero-mcp），可直接复用。
+如果用户的 Agent 已经配置了 Zotero 工具，可复用已有配置。
 
 ---
 
@@ -644,8 +610,8 @@ PDF 内容、论文信息和笔记可能包含用户的研究资料。
 - 不同 Agent 的会话管理。
 - 批量论文处理。
 - 自定义笔记模板。
-- 笔记导出到 Obsidian / Logseq 等本地 Markdown 目录（参考 llm-for-zotero）。
-- 高保真 PDF 解析（如 MinerU，参考 llm-for-zotero）。
+- 笔记导出到本地 Markdown 目录。
+- 高保真解析 PDF 中的表格、公式和图表。
 - 用户自定义标签规则。
 - 更丰富的 Zotero 工具接口。
 
@@ -745,7 +711,7 @@ MVP 完成时必须满足以下条件：
 
 如果目标 Agent 使用 stdio，需验证 Zotero 插件运行环境是否能够稳定启动和管理子进程。
 
-如果不能，采用 Node.js Sidecar；可参考 llm-for-zotero 的 Claude Code Bridge 方案。
+如果无法稳定管理子进程，则采用 Node.js Sidecar。
 
 ### 12.2 PDF 文本获取
 
@@ -753,17 +719,17 @@ MVP 完成时必须满足以下条件：
 
 MVP 先支持可提取文本的 PDF。
 
-扫描版 PDF 的 OCR 由用户 Agent 或其工具链处理；表格、公式等高保真解析可后续参考 llm-for-zotero 的 MinerU 方案接入。
+扫描版 PDF 的 OCR 由用户 Agent 或其工具链处理。表格和公式的高保真解析留待后续接入。
 
 ### 12.3 Agent 工具调用
 
 需要确定 Zotero 工具由哪一侧暴露：
 
-- 通过 ACP Agent 自身支持的 MCP Server 配置（例如直接配置 zotero-mcp）。
+- 通过 ACP Agent 自身支持的 MCP 服务配置。
 - 通过独立的 Zotero MCP Server。
 - 通过 Sidecar 转发 Zotero 工具请求。
 
-优先采用目标 Agent 已支持的方式。可评估直接复用 zotero-mcp 的工具集，以及其本地 API 读取、本地授权写入的机制。
+优先采用目标 Agent 已支持的方式，并验证本地读取和写入授权。
 
 ### 12.4 多论文上下文
 
@@ -777,10 +743,6 @@ MVP 优先支持单篇论文；批量论文分析作为后续能力。
 
 MVP 默认采用新建笔记，或预览确认后替换。
 
-### 12.6 参考项目许可证
-
-zotero-mcp 的 Zotero Agent 插件部分与 llm-for-zotero 均使用 AGPL 许可证（zotero-mcp 的 MCP Server 部分为 MIT）。若直接复用其代码，需确认本项目的许可证选择与之兼容；仅借鉴设计思路则不受影响。
-
 ---
 
 ## 13. 产品设计原则
@@ -788,7 +750,7 @@ zotero-mcp 的 Zotero Agent 插件部分与 llm-for-zotero 均使用 AGPL 许可
 1. **Agent First**：推理和任务执行交给用户自己的 Agent。
 2. **Thin Plugin**：Zotero 插件提供上下文、界面和受控的操作接口。
 3. **Protocol First**：通过 ACP 与 Agent 通信，兼容任意模型和 Agent 产品。
-4. **Reuse Existing Tools**：优先复用已有 MCP 工具（如 zotero-mcp）和已验证的交互设计（如 llm-for-zotero）。
+4. **Reuse Existing Tools**：优先复用已有 MCP 工具和已验证的交互设计。
 5. **User Control**：涉及 Zotero 数据修改时，用户拥有最终确认权。
 
 ## 14. 产品成功标准
@@ -803,12 +765,3 @@ zotero-mcp 的 Zotero Agent 插件部分与 llm-for-zotero 均使用 AGPL 许可
 - 整个过程是否比手动复制、粘贴和切换工具更简单。
 
 **最终产品目标：让用户在 Zotero 中直接使用自己已经拥有的 Agent。**
-
----
-
-## 附录：参考链接
-
-- zotero-mcp：<https://github.com/54yyyu/zotero-mcp>
-- llm-for-zotero：<https://github.com/yilewang/llm-for-zotero>
-- zotero-plugin-template：<https://github.com/windingwind/zotero-plugin-template>
-- cc-llm4zotero-adapter（llm-for-zotero 的 Claude Code Bridge）：<https://github.com/jianghao-zhang/cc-llm4zotero-adapter>
