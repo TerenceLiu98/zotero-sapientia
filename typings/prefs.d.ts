@@ -9,8 +9,12 @@ declare namespace _ZoteroTypes {
     PluginPrefsMap: {
       "profiles": string;
       "defaultProfileId": string;
+      "libraryDefaultModel": string;
       "allowTagDeletion": boolean;
       "readOnly": boolean;
+      "marginalia": boolean;
+      "selectionShortcut": string;
+      "selectionPrompt": string;
     };
   }
 }

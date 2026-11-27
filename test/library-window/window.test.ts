@@ -2,9 +2,11 @@ import { assert } from "chai";
 import { loadProfiles, saveProfiles } from "../../src/agents/store";
 import { ChatController } from "../../src/chat/controller";
 import {
+  createLibraryThreadId,
   libraryRecap,
   loadLibrarySession,
   saveLibrarySession,
+  setActiveLibraryThread,
 } from "../../src/chat/library-session";
 import type { ChatMessage } from "../../src/chat/transcript";
 import { LIBRARY_BUTTON_ID } from "../../src/modules/library-window";
@@ -34,10 +36,15 @@ async function waitFor(
 
 async function openLibraryWindow() {
   const host = mainWindow();
-  const toolbar = host.document.getElementById(LIBRARY_BUTTON_ID);
-  assert.exists(toolbar);
-  assert.isAbove(toolbar!.getBoundingClientRect().width, 0);
-  toolbar!.dispatchEvent(new host.Event("command"));
+  const button = host.document.getElementById(LIBRARY_BUTTON_ID)!;
+  assert.exists(button);
+  const icon = button.querySelector(".toolbarbutton-icon")!;
+  assert.exists(icon);
+  const { width, height } = icon.getBoundingClientRect();
+  assert.closeTo(width, 16, 1);
+  assert.closeTo(height, 16, 1);
+  assert.isAtMost(button.getBoundingClientRect().width, 40);
+  button.dispatchEvent(new host.Event("command"));
   await waitFor("the Library Agent composer", () =>
     libraryWindow()?.document.querySelector(".sap-chat-composer"),
   ).catch((cause) => {
@@ -82,6 +89,7 @@ interface RestartCheckpoint {
   collectionKey: string;
   firstKey: string;
   secondKey: string;
+  historyThreadId: string;
 }
 
 if (restartPhase === "after") {
@@ -129,6 +137,16 @@ if (restartPhase === "after") {
     const priorCount = (await log()).length;
     const win = await openLibraryWindow();
     try {
+      await waitFor(
+        "both saved chats after restart",
+        () =>
+          win.document.querySelector(
+            '[data-thread-id="default"][aria-current="true"]',
+          ) &&
+          win.document
+            .querySelector(`[data-thread-id="${checkpoint.historyThreadId}"]`)
+            ?.textContent?.includes("Earlier library conversation"),
+      );
       assert.include(
         win.document.querySelector(".sap-chat-transcript")?.textContent,
         "Library session continued",
@@ -394,6 +412,23 @@ if (restartPhase !== "after")
         );
         if (restartPhase === "before") {
           stage = "leave a write pending during shutdown";
+          const historyThreadId = createLibraryThreadId();
+          await saveLibrarySession(
+            {
+              profileId: profile.id,
+              sessionId: null,
+              messages: [
+                { id: "1", role: "user", text: "Earlier library conversation" },
+                {
+                  id: "2",
+                  role: "assistant",
+                  blocks: [{ type: "text", text: "Earlier answer" }],
+                  stopReason: "end_turn",
+                },
+              ],
+            },
+            historyThreadId,
+          );
           await send(
             reopened,
             calls([
@@ -427,6 +462,7 @@ if (restartPhase !== "after")
               collectionKey,
               firstKey: first.key,
               secondKey: second.key,
+              historyThreadId,
             } satisfies RestartCheckpoint,
             { flush: true },
           );
@@ -447,6 +483,133 @@ if (restartPhase !== "after")
     });
 
     if (restartPhase === "before") return;
+
+    it("opens past conversations from the sidebar and remembers the selected chat", async () => {
+      await reset();
+      const fixture = await makeAgent("library thread history");
+      const profile = fixture.profile([
+        "--capabilities",
+        '{"loadSession":true,"mcpCapabilities":{"http":true}}',
+      ]);
+      use(profile);
+      const firstId = createLibraryThreadId();
+      await saveLibrarySession(
+        {
+          profileId: profile.id,
+          sessionId: null,
+          messages: [
+            { id: "1", role: "user", text: "First library conversation" },
+            {
+              id: "2",
+              role: "assistant",
+              blocks: [{ type: "text", text: "The first saved answer" }],
+              stopReason: "end_turn",
+            },
+          ],
+        },
+        firstId,
+      );
+      await setActiveLibraryThread(firstId);
+      const win = await openLibraryWindow();
+      const document = win.document;
+      const row = (id: string) =>
+        document.querySelector<HTMLButtonElement>(`[data-thread-id="${id}"]`);
+      const transcript = () => document.querySelector(".sap-chat-transcript")!;
+      const selectedId = () =>
+        document.querySelector<HTMLButtonElement>(
+          "[data-thread-id][aria-current='true']",
+        )?.dataset.threadId;
+      try {
+        assert.include(transcript().textContent, "The first saved answer");
+        document
+          .querySelector<HTMLButtonElement>(".sap-library-new-chat")!
+          .click();
+        await waitFor("the new chat landing view", () =>
+          document.querySelector(
+            '.sap-library-chat[data-empty="true"] .sap-chat-input',
+          ),
+        );
+        const draft =
+          document.querySelector<HTMLTextAreaElement>(".sap-chat-input")!;
+        const surface = document
+          .querySelector(".sap-library-surface")!
+          .getBoundingClientRect();
+        const composerElement = document.querySelector(".sap-chat-composer")!;
+        const composer = composerElement.getBoundingClientRect();
+        const card = win.getComputedStyle(composerElement)!;
+        assert.closeTo(
+          composer.left + composer.width / 2,
+          surface.left + surface.width / 2,
+          2,
+        );
+        assert.equal(card.borderTopWidth, "1px");
+        assert.equal(card.borderTopLeftRadius, "20px");
+        assert.notEqual(card.borderTopColor, "rgba(0, 0, 0, 0)");
+        assert.notEqual(card.backgroundColor, "rgba(0, 0, 0, 0)");
+        document
+          .querySelector<HTMLButtonElement>(".sap-library-shortcuts button")!
+          .click();
+        assert.include(draft.value, "Find papers");
+        assert.isUndefined(selectedId());
+        const history = document.getElementById("sap-library-history")!;
+        const toggle = document.querySelector<HTMLButtonElement>(
+          ".sap-library-history-toggle",
+        )!;
+        const surfaceWidth = () =>
+          document
+            .querySelector(".sap-library-surface")!
+            .getBoundingClientRect().width;
+        const expandedWidth = surfaceWidth();
+        toggle.click();
+        assert.equal(toggle.getAttribute("aria-expanded"), "false");
+        assert.equal(history.getBoundingClientRect().height, 0);
+        assert.isAbove(surfaceWidth(), expandedWidth);
+        assert.include(draft.value, "Find papers");
+        toggle.click();
+        assert.equal(toggle.getAttribute("aria-expanded"), "true");
+        assert.closeTo(surfaceWidth(), expandedWidth, 1);
+        assert.include(draft.value, "Find papers");
+        await send(win, "echo:The second conversation");
+        await waitFor(
+          "the new chat's history row and reply",
+          () =>
+            Boolean(selectedId()) &&
+            transcript()
+              .querySelector(".sap-msg-assistant")
+              ?.textContent?.includes("The second conversation"),
+        );
+        const secondId = selectedId()!;
+        assert.notEqual(secondId, firstId);
+        row(firstId)!.click();
+        await waitFor("the first chat's saved transcript", () =>
+          transcript()?.textContent?.includes("The first saved answer"),
+        );
+        assert.notInclude(transcript().textContent, "The second conversation");
+        row(secondId)!.click();
+        await waitFor("the second chat's saved transcript", () =>
+          transcript()?.textContent?.includes("The second conversation"),
+        );
+        assert.notInclude(transcript().textContent, "The first saved answer");
+        win.close();
+        await waitFor(
+          "the Library Agent window to close",
+          () => !libraryWindow(),
+        );
+        const reopened = await openLibraryWindow();
+        assert.include(
+          reopened.document.querySelector(".sap-chat-transcript")?.textContent,
+          "The second conversation",
+        );
+        await waitFor("the selected entry in reopened history", () =>
+          reopened.document.querySelector(
+            `[data-thread-id="${secondId}"][aria-current="true"]`,
+          ),
+        );
+      } finally {
+        libraryWindow()?.close();
+        await reset();
+      }
+    });
 
     for (const expired of [true, false]) {
       const scenario = expired ? "an expired" : "an unsupported";

@@ -1,6 +1,11 @@
 import { config } from "../../../package.json";
 import type { ChatController } from "../../chat/controller";
+import {
+  selectionFromAnnotation,
+  type SelectedText,
+} from "../../context/paper";
 import { getString } from "../../utils/locale";
+import type { AnnotationSource } from "../marginalia/annotation";
 import { h } from "../ui/dom";
 import { createContextView } from "./context";
 import { CHAT_STYLES } from "./styles";
@@ -13,11 +18,16 @@ const DEFAULT_WIDTH = 400;
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 640;
 
+interface ChatSidebar {
+  askFromAnnotation(source: AnnotationSource): void;
+  dispose(): void;
+}
+
 /** The deck owns the library and reader tabs. Its sibling stays mounted across tab switches. */
 export function mountChatSidebar(
   window: Window,
   chat: ChatController,
-): (() => void) | undefined {
+): ChatSidebar | undefined {
   const doc = window.document;
   const row = doc.getElementById("tabs-deck")?.parentElement;
   const librarySidenav = doc.getElementById("zotero-view-item-sidenav");
@@ -137,10 +147,20 @@ export function mountChatSidebar(
   placeButton();
 
   let view: ChatView | undefined;
-  const context = createContextView(doc, () => {
+  const context = createContextView(
+    doc,
+    () => {
+      if (panel.hidden) setOpen(true);
+      else view?.element.querySelector("textarea")?.focus();
+    },
+    false,
+    askPassage,
+  );
+  function askPassage(selection: SelectedText, source?: AnnotationSource) {
+    context.attach(selection);
     if (panel.hidden) setOpen(true);
-    else view?.element.querySelector("textarea")?.focus();
-  });
+    view?.setAnnotationSource(source);
+  }
   const setOpen = (open: boolean) => {
     panel.hidden = !open;
     button.setAttribute("aria-pressed", String(open));
@@ -160,12 +180,18 @@ export function mountChatSidebar(
 
   button.addEventListener("command", () => setOpen(panel.hidden));
 
-  return () => {
-    railObserver.disconnect();
-    Zotero.Notifier.unregisterObserver(tabObserver);
-    if (view) view.destroy();
-    else context.destroy();
-    button.remove();
-    panel.remove();
+  return {
+    askFromAnnotation(source) {
+      const selection = selectionFromAnnotation(source);
+      if (selection) askPassage(selection, source);
+    },
+    dispose() {
+      railObserver.disconnect();
+      Zotero.Notifier.unregisterObserver(tabObserver);
+      if (view) view.destroy();
+      else context.destroy();
+      button.remove();
+      panel.remove();
+    },
   };
 }

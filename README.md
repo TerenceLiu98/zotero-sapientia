@@ -18,6 +18,17 @@ The agent can read the current paper's metadata, PDF text, current PDF selection
 
 The plugin registers its loopback Model Context Protocol (MCP) endpoint when the agent advertises HTTP MCP over ACP. The local Codex configuration used for verification had no Zotero MCP tools, so the endpoint covers those reads directly with Zotero's bundled document worker.
 
+## Marginalia and portable PDF comments
+
+Turn on **Marginalia** in **Settings → Sapientia** to show the Reader toolbar toggle. The margin displays native highlights and underlines. Open a marker to read or edit the comment when the page leaves little room. **Ask Agent** attaches the quoted text, page, and current comment. You can preview and save an answer or the conversation back to the original passage.
+
+Set **Selection Shortcut** and **Selection Prompt** in the same settings pane. The key is initially unassigned. The default prompt replaces `{language}` with Zotero's UI language. The shortcut sends the prompt and selected text to the configured Library Agent model in a fresh session. Choose **Add to Annotation** to review and save the result.
+
+1. Use Zotero's **File → Export PDF…** in the library or **File → Save As…** in the Reader. Open the exported copy in an external reader and view the embedded comments through its annotation interface. In macOS Preview, use **View → Highlights and Notes**. In Acrobat Reader, use **View → Show/Hide → Side Panels → Comment**.
+2. Edit the comments on a separate copy and add it to Zotero as a PDF attachment. Open it in the Reader and choose **File → Import Annotations…** to transfer the comments into Zotero so they are editable in Marginalia. Keep the original attachment if you want to retain its original annotation history.
+
+[Zotero's PDF annotation export and import documentation](https://www.zotero.org/support/kb/annotations_in_database)
+
 ## Library Agent
 
 Open **Library Agent** from the Zotero toolbar. Its conversation and selected Agent are independent of the paper sidebar. With HTTP MCP support, the Agent can search your personal library by title, author, DOI, year, tag, or collection, then read the papers it finds.
@@ -40,6 +51,7 @@ The approval card follows the public interaction design of the [affectUI Approva
 
 - Set `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` to the Zotero executable and run `npm test` for integration tests in an isolated Zotero profile and library.
 - Run `npm run test:library-restart` with the same executable setting to check Library Agent continuity across two Zotero processes using the same isolated profile and library.
+- Run `npm run test:marginalia-restart` to verify a native comment survives a restart and appears beside the page.
 - Set `SAPIENTIA_TEST_CODEX_ACP` to the absolute path of an authenticated Codex ACP adapter to also run the live paper test. It sends synthetic fixture data to the configured provider and checks a single-page answer, a selected passage, a range summary, and a sidebar citation jump.
 - Run `npm run test:typecheck` for the test and source types and `npm run lint:check` for formatting and lint.
 - For interactive development with `npm start`, see `.env.example` for Zotero profile and data directory settings.
@@ -49,6 +61,8 @@ Native Gecko subprocess transport was validated on Zotero 10.0.9 for macOS with 
 On Zotero 10.0.9 for macOS with Codex CLI 0.172.0 and Codex ACP 2.12.0, the live test answered a question from physical page 1, explained the selected text, and summarized pages 2–3 of a synthetic three-page PDF. Clicking the last citation opened physical page 3 of that attachment.
 
 Library Agent acceptance passed on Zotero 10.0.9 for macOS with the repository's ACP fixture agent 1.0.0. In the isolated profile, the Agent found two papers, added both to a collection, and proposed a metadata correction with source evidence. The correction was approved and undone. A second Zotero process restored the same ACP session, searched the same library, and opened in approval mode with the interrupted write cancelled.
+
+Marginalia acceptance passed on Zotero 10.0.9 and macOS 27.3. Preview 11.0 and Adobe Acrobat Reader 26.001.21662 showed all four native comments, including Chinese text and line breaks. Zotero's export left the source PDF byte-for-byte unchanged. After editing a separate copy with macOS PDFKit and importing it through Zotero's annotation transfer, the edited comment appeared in Marginalia at the original highlight. A two-process test also verified that saved comments reappear after restarting Zotero.
 
 ## Releases
 

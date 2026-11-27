@@ -8,6 +8,7 @@ import {
   Copy,
   FileText,
   Globe,
+  MessageSquarePlus,
   RotateCcw,
   Square,
   X,
@@ -73,6 +74,7 @@ interface AnswerOptions {
   id: string;
   onStop?(): void;
   onRegenerate?(): void;
+  onAppendToAnnotation?(plainText: string, anchor: HTMLElement): void;
 }
 
 export interface AnswerState {
@@ -83,6 +85,7 @@ export interface AnswerState {
   paperTitle?: string;
   pdfRead?: ReadonlyMap<string, string>;
   regenerate?: boolean;
+  appendToAnnotation?: boolean;
   stopping?: boolean;
 }
 
@@ -147,6 +150,11 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
         options.onRegenerate,
       )
     : null;
+  const append: HTMLButtonElement | null = options.onAppendToAnnotation
+    ? action(getString("marginalia-append-answer"), MessageSquarePlus, () =>
+        options.onAppendToAnnotation?.(currentPlainText, append!),
+      )
+    : null;
   const stop = options.onStop
     ? action(getString("action-stop"), Square, options.onStop, true)
     : null;
@@ -156,6 +164,7 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
     { class: "sap-answer-controls" },
     copy,
     regenerate,
+    append,
     stop,
     clipboardStatus,
   );
@@ -201,6 +210,7 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
     paperTitle,
     pdfRead,
     regenerate: canRegenerate,
+    appendToAnnotation: canAppend,
     stopping,
   }: AnswerState) {
     question.hidden = !prompt;
@@ -212,6 +222,7 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
     writing.hidden = !streaming;
     copy.hidden = streaming;
     if (regenerate) regenerate.hidden = streaming || !canRegenerate;
+    if (append) append.hidden = streaming || !canAppend;
     if (stop) {
       stop.hidden = !streaming;
       stop.disabled = Boolean(stopping);
@@ -423,6 +434,7 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
   return {
     element,
     render,
+    plainText: () => currentPlainText,
     destroy() {
       if (copyTimer !== undefined) doc.defaultView?.clearTimeout(copyTimer);
     },

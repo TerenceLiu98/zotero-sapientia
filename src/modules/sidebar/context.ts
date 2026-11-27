@@ -3,14 +3,17 @@ import type { ChatSelection } from "../../chat/transcript";
 import {
   createPaperContext,
   readActivePaperSelection,
+  type SelectedText,
 } from "../../context/paper";
 import { getString } from "../../utils/locale";
+import type { AnnotationSource } from "../marginalia/annotation";
 import { h, iconButton, lucideIcon } from "../ui/dom";
 
 export function createContextView(
   doc: Document,
   onAttach?: () => void,
   library = false,
+  onAskPassage?: (selection: SelectedText, source?: AnnotationSource) => void,
 ) {
   const title = h(doc, "span", { class: "sap-context-title" });
   const element = h(
@@ -31,8 +34,9 @@ export function createContextView(
     : createPaperContext(
         doc.defaultView!,
         render,
-        attach,
+        onAskPassage ?? attach,
         getString("context-add-selection"),
+        Boolean(onAskPassage),
       );
 
   function render() {
@@ -52,6 +56,7 @@ export function createContextView(
     attached.replaceChildren(
       ...Array.from(selections, ([id, selection], index) => {
         const origin = selectionSource(selection);
+        const comment = "comment" in selection ? selection.comment : undefined;
         const label = getString("context-selection-number", {
           number: index + 1,
         });
@@ -79,9 +84,14 @@ export function createContextView(
           "div",
           {
             class: "sap-context-quote",
-            title: origin ? `${origin}\n${selection.text}` : selection.text,
+            title: [origin, selection.text, comment].filter(Boolean).join("\n"),
           },
-          h(doc, "div", { class: "sap-context-quote-text" }, selection.text),
+          h(
+            doc,
+            "div",
+            { class: "sap-context-quote-text" },
+            [selection.text, comment].filter(Boolean).join("\n"),
+          ),
           h(
             doc,
             "div",

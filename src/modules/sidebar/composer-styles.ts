@@ -9,9 +9,9 @@ export const COMPOSER_STYLES = `
   min-width: 0;
   max-width: 680px;
   margin-bottom: 12px;
-  border: 1px solid var(--sap-border);
+  border: 1px solid var(--sap-composer-border, var(--sap-border));
   border-radius: 20px;
-  background: var(--material-button);
+  background: var(--sap-composer-background, var(--material-button));
 }
 .sap-composer-card {
   display: flex;

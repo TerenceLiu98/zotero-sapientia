@@ -22,6 +22,8 @@ import { getString, type MessageId } from "../../utils/locale";
 import { agentIcon } from "../ui/agent-icon";
 import { h, iconButton, lucideIcon } from "../ui/dom";
 import { SURFACE_STYLES } from "../ui/styles";
+import { createSelectionShortcutSettings } from "../marginalia/shortcut-settings";
+import { createLibraryModelSettings } from "./library-model";
 import { SETTINGS_STYLES } from "./styles";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
@@ -128,6 +130,21 @@ export function renderSettingsPane(
   );
   addButton.prepend(lucideIcon(doc, Plus, 15));
   const addEditor = h(doc, "div");
+  const libraryModel = createLibraryModelSettings(doc, closeEditor);
+  const marginaliaLabel = getString("marginalia-settings");
+  const marginaliaPref = `${config.prefsPrefix}.marginalia`;
+  const marginaliaEnabled = h(doc, "input", {
+    id: id("marginalia-enabled"),
+    type: "checkbox",
+    checked: Zotero.Prefs.get(marginaliaPref, true) === true,
+    change(event) {
+      Zotero.Prefs.set(
+        marginaliaPref,
+        (event.target as HTMLInputElement).checked,
+        true,
+      );
+    },
+  });
   const root = h(
     doc,
     "div",
@@ -140,6 +157,19 @@ export function renderSettingsPane(
       list,
       addButton,
       addEditor,
+    ),
+    h(
+      doc,
+      "div",
+      { class: "sap-prefs-section" },
+      h(
+        doc,
+        "label",
+        { class: "sap-prefs-row", for: marginaliaEnabled.id },
+        marginaliaEnabled,
+        marginaliaLabel,
+      ),
+      createSelectionShortcutSettings(doc),
     ),
   );
 
@@ -229,6 +259,7 @@ export function renderSettingsPane(
 
   /** Opens the editor on an agent, or on a blank one when given "". */
   function startEditing(profileId: string): void {
+    libraryModel.close();
     const known = mergeProfiles(profiles, detected).find(
       (profile) => profile.id === profileId,
     );
@@ -354,6 +385,7 @@ export function renderSettingsPane(
 
   function renderList(): void {
     const available = mergeProfiles(profiles, detected);
+    libraryModel.render(available);
     const detectedIDs = new Set(detected.map(({ id }) => id));
     const ordered = [
       ...detected.map((profile) =>
@@ -458,6 +490,7 @@ export function renderSettingsPane(
               getString("prefs-no-agent"),
             ),
           ]),
+      libraryModel.element,
     );
     addButton.hidden = draft?.id === "";
     if (addButton.hidden) {
@@ -493,6 +526,7 @@ export function renderSettingsPane(
       return;
     }
     disposed = true;
+    libraryModel.dispose();
     doc.defaultView?.removeEventListener("unload", dispose);
     Zotero.Prefs.unregisterObserver(profileObserver);
     Zotero.Prefs.unregisterObserver(defaultObserver);

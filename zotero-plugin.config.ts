@@ -69,10 +69,8 @@ export default defineConfig({
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}?.data.initialized`,
     hooks: {
       async "test:init"() {
-        if (process.env.SAPIENTIA_TEST_LIBRARY_PHASE !== "after") return;
-        const snapshot = process.env.SAPIENTIA_TEST_LIBRARY_SNAPSHOT;
-        if (!snapshot)
-          throw new Error("The Zotero restart snapshot is missing.");
+        const snapshot = process.env.SAPIENTIA_TEST_RESTART_SNAPSHOT;
+        if (!snapshot) return;
         await Promise.all(
           ["profile", "data"].map((name) =>
             cp(join(snapshot, name), join(".scaffold", "test", name), {
