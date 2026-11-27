@@ -3,7 +3,12 @@ import { z } from "zod";
 import { version } from "../../package.json";
 import { redactor } from "../utils/log";
 import type { WriteHandoff } from "../writes/request";
-import { callPaperTool, listPaperTools, type ResolveTurn } from "./paper-tools";
+import {
+  callPaperTool,
+  listPaperTools,
+  type PaperToolOptions,
+  type ResolveTurn,
+} from "./paper-tools";
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const MAX_REQUEST_BYTES = 64 * 1024;
@@ -30,6 +35,7 @@ async function answerRpc(
   message: z.infer<typeof rpcMessage>,
   active: ResolveTurn,
   handoff: WriteHandoff,
+  options: PaperToolOptions,
 ) {
   const { method, params } = message;
   switch (method) {
@@ -50,7 +56,7 @@ async function answerRpc(
     case "ping":
       return { result: {} };
     case "tools/list":
-      return { result: { tools: listPaperTools() } };
+      return { result: { tools: listPaperTools(options) } };
     case "tools/call":
       return {
         result: await callPaperTool(
@@ -58,6 +64,7 @@ async function answerRpc(
           params?.arguments,
           active,
           handoff,
+          options,
         ),
       };
     default:
@@ -79,8 +86,9 @@ function writeJson(response: nsIHttpResponse, value: object) {
 export function startPaperTools(
   active: ResolveTurn,
   handoff: WriteHandoff,
+  options: PaperToolOptions = {},
 ): {
-  server: McpServer;
+  server: Extract<McpServer, { type: "http" }>;
   close(): Promise<void>;
 } {
   const { HttpServer } = ChromeUtils.importESModule(
@@ -166,6 +174,7 @@ export function startPaperTools(
       parsed.data,
       (id) => (closed ? undefined : active(id)),
       handoff,
+      options,
     );
     writeJson(response, { jsonrpc: "2.0", id: parsed.data.id, ...result });
   }

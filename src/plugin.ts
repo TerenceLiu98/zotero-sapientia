@@ -3,6 +3,7 @@ import { secretValues } from "./agents/secrets";
 import { loadProfiles } from "./agents/store";
 import { ChatController } from "./chat/controller";
 import { renderSettingsPane } from "./modules/settings/pane";
+import { createLibraryWindow } from "./modules/library-window";
 import { mountChatSidebar } from "./modules/sidebar/section";
 import { installGlobals } from "./utils/globals";
 import { getString, initLocale } from "./utils/locale";
@@ -31,6 +32,7 @@ export interface Plugin {
 
 export function createPlugin(): Plugin {
   const chat = new ChatController();
+  const library = createLibraryWindow();
   let starting: Promise<void> | null = null;
   let stopping = false;
   const sidebars = new Map<Window, () => void>();
@@ -45,8 +47,13 @@ export function createPlugin(): Plugin {
 
   function onMainWindowLoad(window: Window): void {
     if (stopping || sidebars.has(window)) return;
-    const dispose = mountChatSidebar(window, chat);
-    if (dispose) sidebars.set(window, dispose);
+    const sidebar = mountChatSidebar(window, chat);
+    const toolbar = library.mount(window);
+    if (sidebar || toolbar)
+      sidebars.set(window, () => {
+        sidebar?.();
+        toolbar?.();
+      });
   }
 
   /** Takes back what `start` has registered so far. */
@@ -118,7 +125,7 @@ export function createPlugin(): Plugin {
         if (!appShutdown) {
           release();
         }
-        await chat.shutdown();
+        await Promise.all([chat.shutdown(), library.shutdown()]);
         Zotero.Sapientia = undefined;
       },
 

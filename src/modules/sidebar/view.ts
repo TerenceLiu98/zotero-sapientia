@@ -44,7 +44,7 @@ export function createChatView(
   doc: Document,
   chat: ChatController,
   onClose?: () => void,
-  context = createContextView(doc),
+  context = createContextView(doc, undefined, chat.library),
 ): ChatView {
   const agentName = h(doc, "span", { class: "sap-chat-agent" });
   const statusLabel = h(doc, "span");
@@ -136,6 +136,13 @@ export function createChatView(
       selectModel: (id) => chat.selectModel(id),
       selectReasoning: (id) => chat.selectReasoning(id),
       cancelWrites: () => chat.writes.cancelActive(),
+      ...(chat.library && {
+        selectedProfileId: () => chat.selectedProfileId,
+        libraryPermissions: {
+          get: () => chat.getState().libraryWrites!,
+          set: (patch) => chat.setLibraryWrites(patch),
+        },
+      }),
     },
     context.attachments,
   );

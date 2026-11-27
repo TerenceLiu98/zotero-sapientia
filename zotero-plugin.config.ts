@@ -1,3 +1,5 @@
+import { cp } from "node:fs/promises";
+import { join } from "node:path";
 import { defineConfig } from "zotero-plugin-scaffold";
 import pkg from "./package.json";
 
@@ -65,5 +67,21 @@ export default defineConfig({
       timeout: 30000,
     },
     waitForPlugin: `() => Zotero.${pkg.config.addonInstance}?.data.initialized`,
+    hooks: {
+      async "test:init"() {
+        if (process.env.SAPIENTIA_TEST_LIBRARY_PHASE !== "after") return;
+        const snapshot = process.env.SAPIENTIA_TEST_LIBRARY_SNAPSHOT;
+        if (!snapshot)
+          throw new Error("The Zotero restart snapshot is missing.");
+        await Promise.all(
+          ["profile", "data"].map((name) =>
+            cp(join(snapshot, name), join(".scaffold", "test", name), {
+              recursive: true,
+              verbatimSymlinks: true,
+            }),
+          ),
+        );
+      },
+    },
   },
 });

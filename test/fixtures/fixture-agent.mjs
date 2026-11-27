@@ -516,8 +516,11 @@ async function handle(message) {
       });
     }
     case "session/load": {
-      const session = readStore()[params.sessionId];
+      const sessions = readStore();
+      const session = sessions[params.sessionId];
       if (!session) return refuse(id, -32002, "session not found");
+      session.mcpServers = params.mcpServers;
+      writeStore(sessions);
       for (const value of session.updates) {
         update(params.sessionId, value);
       }

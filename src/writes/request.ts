@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { config } from "../../package.json";
 import {
+  resolveLibraryCollection,
+  resolveLibraryPaper,
+} from "../context/library";
+import {
   findTagItem,
   paperIdentity,
   type PaperContext,
@@ -44,7 +48,7 @@ const turnId = z
 const html = z.string().min(1);
 const noteKey = z.string().min(1);
 const tags = z.array(z.string().trim().normalize().min(1)).min(1).max(100);
-const operationSchemas = [
+const noteAndTagSchemas = [
   z.strictObject({
     ...itemIdentifier,
     operation: z.literal("create_note"),
@@ -65,6 +69,9 @@ const operationSchemas = [
     operation: z.literal("delete_tags"),
     change: z.strictObject({ tags }),
   }),
+] as const;
+const operationSchemas = [
+  ...noteAndTagSchemas,
   z.strictObject({
     ...itemIdentifier,
     operation: z.literal("update_metadata"),
@@ -111,28 +118,134 @@ export const writeInputSchema = z.toJSONSchema(
   { target: "draft-7", io: "input" },
 );
 
+const evidence = z
+  .array(
+    z.strictObject({
+      url: z.url({ protocol: /^https?$/ }),
+      summary: z.string().trim().min(1).max(1000),
+    }),
+  )
+  .min(1)
+  .max(10);
+const collectionKey = z.string().trim().min(1);
+const collectionMembership = z.strictObject({ collectionKey });
+const libraryOperationSchemas = [
+  ...noteAndTagSchemas,
+  z.strictObject({
+    ...itemIdentifier,
+    operation: z.literal("update_metadata"),
+    change: z
+      .strictObject({ ...metadataSchema.shape, evidence })
+      .refine(
+        ({ itemType, fields, creators }) =>
+          metadataSchema.safeParse({ itemType, fields, creators }).success,
+        "Supply itemType, fields, or creators.",
+      ),
+  }),
+  z.strictObject({
+    operation: z.literal("create_collection"),
+    change: z.strictObject({
+      name: z.string().trim().normalize().min(1),
+      parentCollectionKey: collectionKey.optional(),
+    }),
+  }),
+  z.strictObject({
+    ...itemIdentifier,
+    operation: z.literal("add_to_collection"),
+    change: collectionMembership,
+  }),
+  z.strictObject({
+    ...itemIdentifier,
+    operation: z.literal("remove_from_collection"),
+    change: collectionMembership,
+  }),
+  z.strictObject({
+    ...itemIdentifier,
+    operation: z.literal("report_metadata_unresolved"),
+    change: z.strictObject({
+      reason: z.string().trim().min(1).max(1000),
+      evidence: evidence.optional(),
+    }),
+  }),
+] as const;
+const libraryOperations = z
+  .array(z.discriminatedUnion("operation", libraryOperationSchemas))
+  .min(1)
+  .max(50)
+  .describe(
+    "Ordered batch for the personal library. Supply an explicit itemID or itemKey for every item operation. Include evidence for metadata corrections, or report_metadata_unresolved when evidence conflicts or is insufficient.",
+  );
+export const libraryWriteSchema = z.strictObject({
+  turnId,
+  operations: libraryOperations,
+});
+export const libraryWriteInputSchema = z.toJSONSchema(libraryWriteSchema, {
+  target: "draft-7",
+  io: "input",
+});
+
 export type ItemIdentity = Pick<
   PaperContext,
   "itemID" | "itemKey" | "libraryID" | "title"
 >;
 type Operation = z.infer<typeof operationSchema>;
 type Change<T> = T extends Operation ? Pick<T, "operation" | "change"> : never;
-export type ApprovedChange = (
+export type WriteTarget =
+  | ItemIdentity
+  | {
+      title: string;
+      libraryID: number;
+      collectionKey?: string;
+      itemID?: never;
+      itemKey?: never;
+    };
+type ItemChange = (
   | (Change<Exclude<Operation, { operation: "update_metadata" }>> & {
       note?: { title: string; previousHTML: string };
     })
-  | { operation: "update_metadata"; change: MetadataChange; note?: never }
+  | {
+      operation: "update_metadata";
+      change: MetadataChange & { evidence?: z.infer<typeof evidence> };
+      note?: never;
+    }
+  | {
+      operation: "add_to_collection" | "remove_from_collection";
+      change: {
+        collection: { key: string; title: string };
+        before: boolean;
+        after: boolean;
+      };
+      note?: never;
+    }
+  | {
+      operation: "report_metadata_unresolved";
+      change: { reason: string; evidence?: z.infer<typeof evidence> };
+      note?: never;
+    }
 ) & { target: ItemIdentity };
+export type ApprovedChange =
+  | ItemChange
+  | {
+      operation: "create_collection";
+      target: Exclude<WriteTarget, ItemIdentity>;
+      change: {
+        name: string;
+        parent?: { key: string; title: string };
+        unchanged: boolean;
+      };
+      note?: never;
+    };
 
 export interface WriteProposal {
   operations: readonly ApprovedChange[];
 }
 
 export type WriteOutcome = {
-  status: "applied" | "unchanged" | "failed" | "cancelled";
-  target: ItemIdentity;
-  operation: Operation["operation"];
+  status: "applied" | "unchanged" | "failed" | "cancelled" | "unresolved";
+  target: WriteTarget;
+  operation: ApprovedChange["operation"];
   error?: string;
+  reason?: string;
   historyID?: string;
 };
 export type WriteResult = {
@@ -207,21 +320,54 @@ function sanitizeNote(src: string): string {
 }
 
 export async function prepareWrite(
-  request: z.infer<typeof writeSchema>,
+  request: z.infer<typeof writeSchema> | z.infer<typeof libraryWriteSchema>,
   paper?: PaperContext,
   tagItems?: readonly TagItem[],
+  scope?: { library?: boolean; tagDeletionAllowed?: () => boolean },
 ): Promise<WriteProposal> {
   const current = paper && (await resolveItem(paper));
-  if (!current && !tagItems?.length)
+  if (!scope?.library && !current && !tagItems?.length)
     throw new Error("The write proposal requires paper context.");
   const operations: ApprovedChange[] = [];
   const previewTags = new Map<number, Set<string>>();
+  const previewMembership = new Map<string, boolean>();
+  const previewCollections = new Set<string>();
   for (const operation of "operations" in request
     ? request.operations
     : [request]) {
+    if (operation.operation === "create_collection") {
+      if (!scope?.library)
+        throw new Error("This operation requires the Library Agent.");
+      const { name, parentCollectionKey } = operation.change;
+      const parent = parentCollectionKey
+        ? await requireCollection(parentCollectionKey)
+        : undefined;
+      const existing = existingCollection(name, parent);
+      const identity = JSON.stringify([
+        parentCollectionKey,
+        name.toLowerCase(),
+      ]);
+      operations.push({
+        operation: operation.operation,
+        target: {
+          title: name,
+          libraryID: Zotero.Libraries.userLibraryID,
+          collectionKey: existing?.key,
+        },
+        change: {
+          name,
+          parent: parent && { key: parent.key, title: parent.name },
+          unchanged: !!existing || previewCollections.has(identity),
+        },
+      });
+      previewCollections.add(identity);
+      continue;
+    }
     const { itemKey, itemID, libraryID } = operation;
     let item: Zotero.Item | false | undefined;
-    if (tagItems?.length) {
+    if (scope?.library) {
+      item = await resolveLibraryPaper(operation);
+    } else if (tagItems?.length) {
       if (
         operation.operation !== "add_tags" &&
         operation.operation !== "delete_tags"
@@ -250,7 +396,9 @@ export async function prepareWrite(
       !item ||
       item.deleted ||
       item.isFeedItem ||
-      (!tagItems?.length && item.libraryID !== current?.libraryID) ||
+      (!scope?.library &&
+        !tagItems?.length &&
+        item.libraryID !== current?.libraryID) ||
       (itemKey !== undefined && item.key !== itemKey) ||
       !item.isEditable() ||
       !item.isRegularItem()
@@ -260,11 +408,48 @@ export async function prepareWrite(
       );
     const target = { ...paperIdentity(item), title: item.getDisplayTitle() };
     switch (operation.operation) {
+      case "add_to_collection":
+      case "remove_from_collection": {
+        if (!scope?.library)
+          throw new Error("This operation requires the Library Agent.");
+        const collection = await requireCollection(
+          operation.change.collectionKey,
+        );
+        const key = `${item.id}/${collection.id}`;
+        const before =
+          previewMembership.get(key) ?? item.inCollection(collection.id);
+        const after = operation.operation === "add_to_collection";
+        previewMembership.set(key, after);
+        operations.push({
+          target,
+          operation: operation.operation,
+          change: {
+            collection: { key: collection.key, title: collection.name },
+            before,
+            after,
+          },
+        });
+        break;
+      }
+      case "report_metadata_unresolved":
+        if (!scope?.library)
+          throw new Error("This operation requires the Library Agent.");
+        operations.push({
+          target,
+          operation: operation.operation,
+          change: operation.change,
+        });
+        break;
       case "update_metadata":
         operations.push({
           target,
           operation: operation.operation,
-          change: prepareMetadata(item, operation.change),
+          change: {
+            ...prepareMetadata(item, operation.change),
+            ...("evidence" in operation.change && {
+              evidence: operation.change.evidence,
+            }),
+          },
         });
         break;
       case "create_note":
@@ -288,7 +473,7 @@ export async function prepareWrite(
       case "delete_tags":
       case "add_tags": {
         const deleting = operation.operation === "delete_tags";
-        if (deleting && !tagDeletionAllowed())
+        if (deleting && !(scope?.tagDeletionAllowed ?? tagDeletionAllowed)())
           throw new Error("Tag deletion is disabled in Zotero settings.");
         let proposed = previewTags.get(item.id);
         if (!proposed) {
@@ -310,4 +495,29 @@ export async function prepareWrite(
     }
   }
   return { operations };
+}
+
+export async function requireCollection(
+  collectionKey: string,
+): Promise<Zotero.Collection> {
+  const collection = await resolveLibraryCollection({ collectionKey });
+  if (!collection || !collection.isEditable())
+    throw new Error(
+      "The collection is unavailable for editing in the personal library.",
+    );
+  return collection;
+}
+
+export function existingCollection(
+  name: string,
+  parent?: Zotero.Collection,
+): Zotero.Collection | undefined {
+  const siblings = parent
+    ? Zotero.Collections.getByParent(parent.id)
+    : Zotero.Collections.getByLibrary(Zotero.Libraries.userLibraryID);
+  return siblings.find(
+    (collection) =>
+      !collection.deleted &&
+      collection.name.normalize().toLowerCase() === name.toLowerCase(),
+  );
 }

@@ -325,7 +325,7 @@ export const CHAT_STYLES =
   font-size: 12px;
 }
 .sap-write-fields dt { color: var(--fill-secondary); }
-.sap-write-fields dd { min-width: 0; margin: 0; }
+.sap-write-fields dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .sap-write-metadata-diff { display: grid; gap: 3px; white-space: pre-wrap; }
 .sap-write-metadata-diff del { color: var(--fill-secondary); }
 .sap-write-metadata-diff ins { font-weight: 600; text-decoration: none; }
