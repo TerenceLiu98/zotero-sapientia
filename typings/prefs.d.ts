@@ -12,6 +12,9 @@ declare namespace _ZoteroTypes {
       "libraryDefaultModel": string;
       "allowTagDeletion": boolean;
       "readOnly": boolean;
+      "marginalia": boolean;
+      "selectionShortcut": string;
+      "selectionPrompt": string;
     };
   }
 }

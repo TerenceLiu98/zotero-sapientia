@@ -5,3 +5,6 @@ pref("defaultProfileId", "");
 pref("libraryDefaultModel", "");
 pref("allowTagDeletion", false);
 pref("readOnly", false);
+pref("marginalia", false);
+pref("selectionShortcut", "");
+pref("selectionPrompt", "Translate this to {language}");

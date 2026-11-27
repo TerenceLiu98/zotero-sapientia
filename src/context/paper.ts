@@ -1,4 +1,9 @@
 import { config } from "../../package.json";
+import {
+  captureAnnotationSource,
+  captureStoredAnnotation,
+  type AnnotationSource,
+} from "../modules/marginalia/annotation";
 
 export interface PaperAttachment {
   itemID: number;
@@ -30,6 +35,7 @@ export interface SelectedText {
   pageIndex?: number;
   pageLabel?: string;
   uri: string;
+  comment?: string;
 }
 
 type Reader = _ZoteroTypes.ReaderInstance;
@@ -38,6 +44,7 @@ type Selection = {
   text?: string;
   pageLabel?: string;
   position?: { pageIndex?: number };
+  comment?: string;
 };
 
 // These two fields exist in Zotero 10's PDF reader state and are missing from zotero-types.
@@ -92,7 +99,19 @@ function selectionFrom(
     pageIndex,
     pageLabel: selection?.pageLabel || undefined,
     uri: pageIndex === undefined ? uri : `${uri}?page=${pageIndex + 1}`,
+    ...(selection?.comment && { comment: selection.comment }),
   };
+}
+
+export function selectionFromAnnotation(
+  source: AnnotationSource,
+): SelectedText | undefined {
+  const attachment = Zotero.Items.getByLibraryAndKey(
+    source.libraryID,
+    source.attachmentKey,
+  );
+  if (attachment && attachment.isPDFAttachment())
+    return selectionFrom(attachment, source);
 }
 
 export function paperIdentity(item: Zotero.Item) {
@@ -188,8 +207,9 @@ export function readActivePaperSelection(
 export function createPaperContext(
   window: Window,
   onChange: () => void,
-  onAttach: (selection: SelectedText) => void,
+  onAttach: (selection: SelectedText, source?: AnnotationSource) => void,
   addToChatLabel: string,
+  annotationActions = false,
 ) {
   let timer: number | undefined;
   let disposed = false;
@@ -251,6 +271,24 @@ export function createPaperContext(
     }
   }
 
+  function askButton(
+    reader: Reader,
+    doc: Document,
+    selection: SelectedText,
+    source?: AnnotationSource,
+  ) {
+    const button = doc.createElement("button");
+    button.type = "button";
+    button.className = "toolbar-button wide-button";
+    button.setAttribute("data-tabstop", "1");
+    button.textContent = addToChatLabel;
+    button.addEventListener("click", () => {
+      if (!disposed && reader === activeReader(window))
+        onAttach(selection, source);
+    });
+    return button;
+  }
+
   const onPopup: _ZoteroTypes.Reader.EventHandler<
     "renderTextSelectionPopup"
   > = ({ reader, doc, params, append }) => {
@@ -258,16 +296,35 @@ export function createPaperContext(
       return;
     const selection = selectionFrom(reader._item, params.annotation);
     if (!selection) return;
-    const button = doc.createElement("button");
-    button.type = "button";
-    button.className = "toolbar-button wide-button";
-    button.setAttribute("data-tabstop", "1");
-    button.textContent = addToChatLabel;
-    button.addEventListener("click", () => {
-      if (!disposed && reader === activeReader(window)) onAttach(selection);
-    });
-    append(button);
+    append(
+      askButton(
+        reader,
+        doc,
+        selection,
+        annotationActions
+          ? captureAnnotationSource(reader._item, params.annotation)
+          : undefined,
+      ),
+    );
     refresh();
+  };
+
+  const onAnnotation: _ZoteroTypes.Reader.EventHandler<
+    "renderSidebarAnnotationHeader"
+  > = ({ reader, doc, params, append }) => {
+    const attachment = reader._item;
+    if (reader !== activeReader(window) || !attachment?.isPDFAttachment())
+      return;
+    const key = params.annotation.key || params.annotation.id;
+    if (!key) return;
+    const annotation = Zotero.Items.getByLibraryAndKey(
+      attachment.libraryID,
+      key,
+    );
+    if (!annotation || annotation.parentID !== attachment.id) return;
+    const source = captureStoredAnnotation(annotation);
+    const selection = source && selectionFromAnnotation(source);
+    if (selection) append(askButton(reader, doc, selection, source));
   };
 
   const notifier = Zotero.Notifier.registerObserver(
@@ -280,6 +337,12 @@ export function createPaperContext(
     onPopup,
     config.addonID,
   );
+  if (annotationActions)
+    Zotero.Reader.registerEventListener(
+      "renderSidebarAnnotationHeader",
+      onAnnotation,
+      config.addonID,
+    );
   for (const el of listeners) el?.addEventListener("select", refresh);
 
   function setVisible(visible: boolean) {
@@ -300,6 +363,11 @@ export function createPaperContext(
     for (const el of listeners) el?.removeEventListener("select", refresh);
     Zotero.Notifier.unregisterObserver(notifier);
     Zotero.Reader.unregisterEventListener("renderTextSelectionPopup", onPopup);
+    if (annotationActions)
+      Zotero.Reader.unregisterEventListener(
+        "renderSidebarAnnotationHeader",
+        onAnnotation,
+      );
   }
 
   return {

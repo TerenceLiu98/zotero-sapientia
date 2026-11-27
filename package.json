@@ -29,6 +29,7 @@
     "lint:fix": "prettier --write . && eslint . --fix",
     "test": "node scripts/test.mjs",
     "test:library-restart": "node scripts/test.mjs --library-restart",
+    "test:marginalia-restart": "node scripts/test.mjs --marginalia-restart",
     "test:typecheck": "tsc --noEmit -p test/tsconfig.json",
     "update-deps": "npm update --save"
   },

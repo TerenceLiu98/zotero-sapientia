@@ -1,6 +1,7 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import {
   FolderPlus,
+  FileOutput,
   MessageSquareText,
   Power,
   RotateCcw,
@@ -19,6 +20,8 @@ import type {
 } from "../../chat/controller";
 import { formatError } from "../../utils/errors";
 import { getString, type MessageId } from "../../utils/locale";
+import type { AnnotationSource } from "../marginalia/annotation";
+import { openAnnotationDraft } from "../marginalia/editor";
 import { h, iconButton, lucideIcon } from "../ui/dom";
 import { createAnswer } from "./answer";
 import { createAnswerSelection } from "./answer-selection";
@@ -30,6 +33,7 @@ import { createWriteReview } from "./write-review";
 export interface ChatView {
   element: HTMLElement;
   setVisible(visible: boolean): void;
+  setAnnotationSource(source?: AnnotationSource): void;
   destroy(): void;
 }
 
@@ -78,6 +82,22 @@ export function createChatView(
   );
   const transcript = h(doc, "div", { class: "sap-chat-transcript" });
   const writeReview = createWriteReview(doc, chat.writes);
+  let annotationSource: AnnotationSource | undefined;
+  function previewAnnotation(
+    text: string,
+    label: MessageId,
+    anchor: HTMLElement,
+  ) {
+    const source = annotationSource;
+    if (!source || !text.trim()) return;
+    void openAnnotationDraft(source, text, anchor, {
+      label: getString(label),
+      onSaved(item) {
+        if (annotationSource === source)
+          annotationSource = { ...source, annotationKey: item.key };
+      },
+    });
+  }
   const permissionTitle = h(doc, "strong");
   const permissionDetails = h(doc, "pre", {
     class: "sap-agent-permission-details",
@@ -166,8 +186,30 @@ export function createChatView(
   );
   const newConversation = button("action-new-conversation", SquarePen, () => {
     context.clear();
+    setAnnotationSource();
     void chat.newConversation();
   });
+  const saveConversation: HTMLButtonElement | null = !chat.library
+    ? button("marginalia-save-conversation", FileOutput, () => {
+        if (!annotationSource) return;
+        const content = chat
+          .getState()
+          .messages.flatMap((message) => {
+            if (message.role === "user")
+              return [`${getString("marginalia-user")}:\n${message.text}`];
+            const answer = mounted.get(message.id);
+            const text = answer?.role === "assistant" && answer.plainText();
+            return text ? [`${getString("marginalia-agent")}:\n${text}`] : [];
+          })
+          .join("\n\n");
+        previewAnnotation(
+          content,
+          "marginalia-save-conversation",
+          saveConversation!,
+        );
+      })
+    : null;
+  saveConversation?.classList.add("sap-save-conversation");
   function libraryShortcut(
     label: MessageId,
     prompt: MessageId,
@@ -239,6 +281,7 @@ export function createChatView(
         disconnect,
       ),
       h(doc, "div", { class: "sap-chat-identity" }, agentName, status),
+      saveConversation,
       writeReview.historyButton,
       button("action-agent-settings", Settings, openSettings),
     ),
@@ -271,6 +314,7 @@ export function createChatView(
           state: ChatState,
           last: boolean,
         ): void;
+        plainText(): string;
         destroy(): void;
       };
   const mounted = new Map<string, Mounted>();
@@ -297,6 +341,14 @@ export function createChatView(
               { class: "sap-sent-selection-source" },
               selectionSource(selection),
             ),
+            "comment" in selection && selection.comment
+              ? h(
+                  doc,
+                  "div",
+                  { class: "sap-sent-selection-text" },
+                  selection.comment,
+                )
+              : null,
           ),
         ) ?? [];
       return {
@@ -319,6 +371,10 @@ export function createChatView(
       onStop: () => {
         void chat.stop();
       },
+      onAppendToAnnotation: !chat.library
+        ? (text, anchor) =>
+            previewAnnotation(text, "marginalia-append-answer", anchor)
+        : undefined,
     });
     const note = h(doc, "div", { class: "sap-msg-note" });
     const source = h(doc, "div", { class: "sap-turn-source", hidden: true });
@@ -336,6 +392,7 @@ export function createChatView(
     return {
       role: "assistant",
       node,
+      plainText: answer.plainText,
       render(current, state, last) {
         if (lastMessage !== current) {
           lastMessage = current;
@@ -366,6 +423,7 @@ export function createChatView(
               ? current.context?.paper?.attachment?.uri
               : undefined,
           streaming: !current.stopReason,
+          appendToAnnotation: Boolean(annotationSource),
           stopping: state.execution === "cancelling",
           regenerate:
             last &&
@@ -430,6 +488,11 @@ export function createChatView(
       state.connection !== "connected" && state.connection !== "connecting";
     newConversation.hidden = state.connection !== "connected";
     newConversation.disabled = state.changingModel;
+    if (saveConversation) {
+      saveConversation.hidden = !annotationSource;
+      saveConversation.disabled =
+        state.execution !== "idle" || !state.messages.length;
+    }
     const showRestore = state.canRestore && state.connection !== "connecting";
     notice.hidden = !state.error && !showRestore;
     noticeText.hidden = !state.error;
@@ -448,6 +511,11 @@ export function createChatView(
   const unsubscribe = chat.subscribe(render);
   render(chat.getState());
 
+  function setAnnotationSource(source?: AnnotationSource) {
+    annotationSource = source;
+    render(chat.getState());
+  }
+
   return {
     element: root,
     setVisible(visible) {
@@ -457,6 +525,7 @@ export function createChatView(
         answerSelection.hide();
       }
     },
+    setAnnotationSource,
     destroy() {
       unsubscribe();
       composer.destroy();

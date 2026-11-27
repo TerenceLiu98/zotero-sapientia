@@ -1050,13 +1050,15 @@ function promptBlocks(
           if ("answerId" in selection) {
             return { text: selection.text, source: "previous_agent_answer" };
           }
-          const { text, itemTitle, pageIndex, pageLabel, uri } = selection;
+          const { text, itemTitle, pageIndex, pageLabel, uri, comment } =
+            selection;
           return {
             text,
             title: itemTitle,
             page: pageIndex === undefined ? undefined : pageIndex + 1,
             pageLabel,
             uri,
+            comment,
           };
         }),
       )}`,

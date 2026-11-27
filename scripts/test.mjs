@@ -55,9 +55,9 @@ function runTests(env = {}) {
   return result.status ?? 1;
 }
 
-function runLibraryRestart() {
-  const env = { SAPIENTIA_TEST_ENTRY: "test/library-window" };
-  const before = runTests({ ...env, SAPIENTIA_TEST_LIBRARY_PHASE: "before" });
+function runRestart(entry, phase) {
+  const env = { SAPIENTIA_TEST_ENTRY: entry };
+  const before = runTests({ ...env, [phase]: "before" });
   if (before) return before;
 
   // Scaffold clears its test profile and data before each run.
@@ -71,8 +71,8 @@ function runLibraryRestart() {
     }
     return runTests({
       ...env,
-      SAPIENTIA_TEST_LIBRARY_PHASE: "after",
-      SAPIENTIA_TEST_LIBRARY_SNAPSHOT: snapshot,
+      [phase]: "after",
+      SAPIENTIA_TEST_RESTART_SNAPSHOT: snapshot,
     });
   } finally {
     rmSync(snapshot, { recursive: true, force: true });
@@ -80,5 +80,7 @@ function runLibraryRestart() {
 }
 
 process.exitCode = process.argv.includes("--library-restart")
-  ? runLibraryRestart()
-  : runTests();
+  ? runRestart("test/library-window", "SAPIENTIA_TEST_LIBRARY_PHASE")
+  : process.argv.includes("--marginalia-restart")
+    ? runRestart("test/marginalia-native", "SAPIENTIA_TEST_MARGINALIA_PHASE")
+    : runTests();

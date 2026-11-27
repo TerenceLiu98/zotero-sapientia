@@ -4,6 +4,15 @@ import { loadProfiles } from "./agents/store";
 import { ChatController } from "./chat/controller";
 import { renderSettingsPane } from "./modules/settings/pane";
 import { createLibraryWindow } from "./modules/library-window";
+import {
+  canEditAnnotation,
+  captureAnnotationSource,
+  captureStoredAnnotation,
+  saveAnnotationComment,
+} from "./modules/marginalia/annotation";
+import { openAnnotationDraft } from "./modules/marginalia/editor";
+import { mountMarginaliaReader } from "./modules/marginalia/reader";
+import { mountSelectionShortcut } from "./modules/marginalia/shortcut";
 import { mountChatSidebar } from "./modules/sidebar/section";
 import { installGlobals } from "./utils/globals";
 import { getString, initLocale } from "./utils/locale";
@@ -35,10 +44,21 @@ export function createPlugin(): Plugin {
   const library = createLibraryWindow();
   let starting: Promise<void> | null = null;
   let stopping = false;
-  const sidebars = new Map<Window, () => void>();
+  const sidebars = new Map<
+    Window,
+    {
+      dispose(): void;
+      askFromAnnotation(
+        source: NonNullable<ReturnType<typeof captureStoredAnnotation>>,
+      ): void;
+    }
+  >();
   let prefsPaneID: string | null = null;
   let disposeSettingsPane: (() => void) | null = null;
   let secretsObserver: symbol | null = null;
+  let marginaliaObserver: symbol | undefined;
+  let disposeMarginalia: (() => void) | undefined;
+  let disposeSelectionShortcut: (() => void) | undefined;
 
   /** Makes the log and the interface mask every credential the agents are given. */
   function refreshSecrets(): void {
@@ -49,11 +69,17 @@ export function createPlugin(): Plugin {
     if (stopping || sidebars.has(window)) return;
     const sidebar = mountChatSidebar(window, chat);
     const toolbar = library.mount(window);
-    if (sidebar || toolbar)
-      sidebars.set(window, () => {
-        sidebar?.();
-        toolbar?.();
+    if (sidebar || toolbar) {
+      sidebars.set(window, {
+        dispose() {
+          sidebar?.dispose();
+          toolbar?.();
+        },
+        askFromAnnotation(source) {
+          sidebar?.askFromAnnotation(source);
+        },
       });
+    }
   }
 
   /** Takes back what `start` has registered so far. */
@@ -62,7 +88,7 @@ export function createPlugin(): Plugin {
       Zotero.Prefs.unregisterObserver(secretsObserver);
       secretsObserver = null;
     }
-    for (const dispose of sidebars.values()) dispose();
+    for (const sidebar of sidebars.values()) sidebar.dispose();
     sidebars.clear();
     if (prefsPaneID !== null) {
       Zotero.PreferencePanes.unregister(prefsPaneID);
@@ -100,6 +126,40 @@ export function createPlugin(): Plugin {
       // Shut down while starting: nothing else is registered.
       return;
     }
+    const pref = `${config.prefsPrefix}.marginalia`;
+    const marginalia = mountMarginaliaReader({
+      enabled: () => Zotero.Prefs.get(pref, true) === true,
+      ask(reader, annotation) {
+        const source = captureStoredAnnotation(annotation);
+        const window =
+          Zotero.getMainWindows().find(
+            (candidate) => candidate.Zotero_Tabs?._getTab(reader.tabID).tab,
+          ) ?? Zotero.getMainWindow();
+        if (source && window) sidebars.get(window)?.askFromAnnotation(source);
+      },
+      editable: canEditAnnotation,
+      async saveComment(annotation, comment, previousComment?: string) {
+        const source = captureStoredAnnotation(annotation);
+        if (!source)
+          throw new Error("The original Zotero annotation is unavailable.");
+        await saveAnnotationComment(source, comment, previousComment);
+      },
+    });
+    marginaliaObserver = Zotero.Prefs.registerObserver(
+      pref,
+      marginalia.refresh,
+      true,
+    );
+    disposeMarginalia = marginalia.dispose;
+    disposeSelectionShortcut = mountSelectionShortcut({
+      capture: (reader, annotation) =>
+        captureAnnotationSource(reader._item, annotation),
+      edit: (source, answer, anchor) => {
+        void openAnnotationDraft(source, answer, anchor).catch((error) =>
+          logError("Could not open annotation draft", error),
+        );
+      },
+    });
     for (const window of Zotero.getMainWindows()) {
       onMainWindowLoad(window);
     }
@@ -121,6 +181,10 @@ export function createPlugin(): Plugin {
       async onShutdown({ appShutdown }) {
         stopping = true;
         await starting;
+        if (marginaliaObserver !== undefined)
+          Zotero.Prefs.unregisterObserver(marginaliaObserver);
+        disposeMarginalia?.();
+        disposeSelectionShortcut?.();
         // When Zotero itself is quitting there is no interface left to remove.
         if (!appShutdown) {
           release();
@@ -131,7 +195,7 @@ export function createPlugin(): Plugin {
 
       onMainWindowLoad,
       onMainWindowUnload(window) {
-        sidebars.get(window)?.();
+        sidebars.get(window)?.dispose();
         sidebars.delete(window);
       },
 
