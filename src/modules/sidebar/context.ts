@@ -1,10 +1,17 @@
 import { FileText, MessageSquareText, X } from "lucide";
 import type { ChatSelection } from "../../chat/transcript";
-import { createPaperContext } from "../../context/paper";
+import {
+  createPaperContext,
+  readActivePaperSelection,
+} from "../../context/paper";
 import { getString } from "../../utils/locale";
 import { h, iconButton, lucideIcon } from "../ui/dom";
 
-export function createContextView(doc: Document, onAttach?: () => void) {
+export function createContextView(
+  doc: Document,
+  onAttach?: () => void,
+  library = false,
+) {
   const title = h(doc, "span", { class: "sap-context-title" });
   const element = h(
     doc,
@@ -19,16 +26,18 @@ export function createContextView(doc: Document, onAttach?: () => void) {
   });
   const selections = new Map<number, ChatSelection>();
   let nextId = 0;
-  const tracker = createPaperContext(
-    doc.defaultView!,
-    render,
-    attach,
-    getString("context-add-selection"),
-  );
+  const tracker = library
+    ? null
+    : createPaperContext(
+        doc.defaultView!,
+        render,
+        attach,
+        getString("context-add-selection"),
+      );
 
   function render() {
-    const current = tracker.read();
-    const items = current ? undefined : tracker.readTagItems();
+    const current = tracker?.read();
+    const items = current ? undefined : tracker?.readTagItems();
     element.hidden = !current && !items;
     title.textContent =
       current?.title ??
@@ -119,15 +128,20 @@ export function createContextView(doc: Document, onAttach?: () => void) {
     attachments: attached,
     attach,
     setVisible(visible: boolean) {
-      tracker.setVisible(visible);
+      tracker?.setVisible(visible);
       if (visible) render();
     },
     snapshot() {
       return {
-        paper: tracker.read(),
-        tagItems: tracker.readTagItems(),
+        paper: tracker?.read(),
+        tagItems: tracker?.readTagItems(),
         selections: Array.from(selections.values()),
-        readSelection: tracker.readSelection,
+        readSelection:
+          tracker?.readSelection ??
+          (() => {
+            const main = Zotero.getMainWindow();
+            return main && readActivePaperSelection(main);
+          }),
       };
     },
     consume(sent: readonly ChatSelection[]) {
@@ -139,7 +153,7 @@ export function createContextView(doc: Document, onAttach?: () => void) {
       selections.clear();
       renderAttachments();
     },
-    destroy: () => tracker.dispose(),
+    destroy: () => tracker?.dispose(),
   };
 }
 

@@ -11,7 +11,10 @@ import type { ChatState } from "../../chat/controller";
 import { getString } from "../../utils/locale";
 import { h, iconButton, setIconButton } from "../ui/dom";
 import { createComposerPicker } from "./composer-picker";
-import { createComposerPermissions } from "./composer-permissions";
+import {
+  createComposerPermissions,
+  type LibraryPermissions,
+} from "./composer-permissions";
 
 interface ComposerActions {
   send(text: string): Promise<boolean>;
@@ -20,6 +23,8 @@ interface ComposerActions {
   selectModel(id: string): Promise<void>;
   selectReasoning(id: string): Promise<void>;
   cancelWrites(): void;
+  selectedProfileId?(): string;
+  libraryPermissions?: LibraryPermissions;
 }
 
 export function createComposer(
@@ -37,7 +42,11 @@ export function createComposer(
   const picker = createComposerPicker(doc, ({ kind, id }) => {
     void switchSelection(kind, id);
   });
-  const permissions = createComposerPermissions(doc, actions.cancelWrites);
+  const permissions = createComposerPermissions(
+    doc,
+    actions.cancelWrites,
+    actions.libraryPermissions,
+  );
   const send = iconButton(
     doc,
     getString("action-send"),
@@ -98,7 +107,9 @@ export function createComposer(
       ? state?.execution === "cancelling"
       : pending || !input.value.trim();
     send.dataset.mode = running ? "stop" : "send";
-    const agent = getDefaultProfile(profiles);
+    const agent =
+      profiles.find(({ id }) => id === actions.selectedProfileId?.()) ??
+      getDefaultProfile(profiles);
     picker.render({
       agents: profiles,
       agent,
@@ -198,6 +209,7 @@ export function createComposer(
     },
     render(nextState: ChatState) {
       state = nextState;
+      if (actions.libraryPermissions) permissions.render();
       renderControls();
     },
     destroy() {

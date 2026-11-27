@@ -1,4 +1,12 @@
-import { Check, CircleCheck, Hand, ShieldAlert, type IconNode } from "lucide";
+import {
+  Check,
+  CircleCheck,
+  Hand,
+  ShieldAlert,
+  Zap,
+  type IconNode,
+} from "lucide";
+import type { ChatState } from "../../chat/controller";
 import { getString, type MessageId } from "../../utils/locale";
 import {
   READ_ONLY_PREF,
@@ -12,9 +20,16 @@ import { h, lucideIcon } from "../ui/dom";
 
 let nextPermissionID = 0;
 
+type LibraryWrites = NonNullable<ChatState["libraryWrites"]>;
+export interface LibraryPermissions {
+  get(): LibraryWrites;
+  set(patch: Partial<LibraryWrites>): void;
+}
+
 export function createComposerPermissions(
   doc: Document,
   cancelWrites: () => void,
+  library?: LibraryPermissions,
 ) {
   const window = doc.defaultView!;
   const id = `sap-composer-permissions-${++nextPermissionID}`;
@@ -37,21 +52,25 @@ export function createComposerPermissions(
   const approval = row(
     "approval",
     "permission-approval",
-    "permission-approval-scope",
+    library ? "library-approval-scope" : "permission-approval-scope",
     Hand,
     () => {
-      setWriteAllowed(true);
+      if (library) library.set({ direct: false });
+      else setWriteAllowed(true);
       close(true);
     },
   );
-  const readOnly = row(
-    "read-only",
-    "permission-read-only",
-    "permission-read-only-scope",
-    CircleCheck,
+  const otherMode = row(
+    library ? "direct" : "read-only",
+    library ? "library-direct" : "permission-read-only",
+    library ? "library-direct-scope" : "permission-read-only-scope",
+    library ? Zap : CircleCheck,
     () => {
-      setWriteAllowed(false);
-      cancelWrites();
+      if (library) library.set({ direct: true });
+      else {
+        setWriteAllowed(false);
+        cancelWrites();
+      }
       close(true);
     },
   );
@@ -61,7 +80,8 @@ export function createComposerPermissions(
     "permission-tag-deletion-scope",
     ShieldAlert,
     () => {
-      setTagDeletionAllowed(!tagDeletionAllowed());
+      if (library) library.set({ tagDeletion: !library.get().tagDeletion });
+      else setTagDeletionAllowed(!tagDeletionAllowed());
     },
     true,
   );
@@ -76,7 +96,7 @@ export function createComposerPermissions(
       "aria-label": getString("permission-heading"),
     },
     approval,
-    readOnly,
+    otherMode,
     tagDeletion,
   );
   const element = h(
@@ -141,24 +161,32 @@ export function createComposerPermissions(
   }
 
   function render() {
-    const allowed = writeAllowed();
-    if (allowed !== lastMode) {
-      lastMode = allowed;
+    const libraryWrites = library?.get();
+    const approvalMode = libraryWrites ? !libraryWrites.direct : writeAllowed();
+    const allowed = Boolean(libraryWrites) || approvalMode;
+    if (approvalMode !== lastMode) {
+      lastMode = approvalMode;
       label.textContent = getString(
-        allowed ? "permission-approval" : "permission-read-only",
+        approvalMode
+          ? "permission-approval"
+          : library
+            ? "library-direct"
+            : "permission-read-only",
       );
       trigger.title = getString("permission-title");
       trigger.setAttribute(
         "aria-label",
         `${getString("permission-title")}: ${label.textContent}`,
       );
-      badge.replaceChildren(lucideIcon(doc, allowed ? Hand : CircleCheck, 16));
+      badge.replaceChildren(
+        lucideIcon(doc, approvalMode ? Hand : library ? Zap : CircleCheck, 16),
+      );
     }
-    approval.setAttribute("aria-checked", String(allowed));
-    readOnly.setAttribute("aria-checked", String(!allowed));
+    approval.setAttribute("aria-checked", String(approvalMode));
+    otherMode.setAttribute("aria-checked", String(!approvalMode));
     tagDeletion.setAttribute(
       "aria-checked",
-      String(allowed && tagDeletionAllowed()),
+      String(allowed && (libraryWrites?.tagDeletion ?? tagDeletionAllowed())),
     );
     tagDeletion.disabled = !allowed;
   }
@@ -190,7 +218,7 @@ export function createComposerPermissions(
     position();
     render();
     panel.showPopover();
-    if (focusOption) (writeAllowed() ? approval : readOnly).focus();
+    if (focusOption) (lastMode ? approval : otherMode).focus();
   }
 
   trigger.addEventListener("click", (event) => {
@@ -219,7 +247,7 @@ export function createComposerPermissions(
       close(true);
     } else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(key)) {
       event.preventDefault();
-      const options = [approval, readOnly, tagDeletion].filter(
+      const options = [approval, otherMode, tagDeletion].filter(
         ({ disabled }) => !disabled,
       );
       const current = options.findIndex(
@@ -239,13 +267,14 @@ export function createComposerPermissions(
     if (panel.matches(":popover-open")) position();
   };
   window.addEventListener("resize", resize);
-  const observers = [TAG_DELETION_PREF, READ_ONLY_PREF].map((pref) =>
-    Zotero.Prefs.registerObserver(pref, render, true),
+  const observers = (library ? [] : [TAG_DELETION_PREF, READ_ONLY_PREF]).map(
+    (pref) => Zotero.Prefs.registerObserver(pref, render, true),
   );
   render();
 
   return {
     element,
+    render,
     close: () => close(),
     destroy() {
       close();

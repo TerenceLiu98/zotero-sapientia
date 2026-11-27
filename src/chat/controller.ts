@@ -18,6 +18,11 @@ import { writeAllowed, type WriteHandoff } from "../writes/request";
 import { startPaperTools } from "../context/tool-server";
 import { UserError } from "../utils/errors";
 import { logError, redactor } from "../utils/log";
+import {
+  libraryRecap,
+  loadLibrarySession,
+  saveLibrarySession,
+} from "./library-session";
 import { foldUpdate, type ChatMessage, type TurnContext } from "./transcript";
 
 export type { AssistantBlock, ChatMessage, TurnContext } from "./transcript";
@@ -47,6 +52,7 @@ export interface ChatState {
   reasoning: SessionChoices | null;
   changingModel: boolean;
   agentPermission: AgentPermission | null;
+  libraryWrites?: { direct: boolean; tagDeletion: boolean };
 }
 
 /** How long an agent gets to end a cancelled turn before it is considered stuck. */
@@ -61,11 +67,11 @@ type Listener = (state: ChatState) => void;
  * The conversation: which agent it talks to, its session, and its transcript.
  * It has no user interface; views subscribe to it and act on its state.
  *
- * A session owns the transcript. Sending opens a session when there is none,
- * and every new session starts an empty transcript.
+ * Sending opens a session when there is none.
+ * The Library Agent keeps its transcript when a new ACP session is needed.
  */
 export class ChatController {
-  readonly writes = new WriteApprovals();
+  readonly writes: WriteApprovals;
   private state: ChatState = {
     agentName: null,
     connection: "disconnected",
@@ -95,8 +101,69 @@ export class ChatController {
   private turn: Turn | null = null;
   private nextMessageNumber = 1;
   private changingModel: Promise<void> | null = null;
+  private libraryProfileId = "";
+  private libraryLoaded: Promise<void> | null = null;
+  private librarySave = Promise.resolve();
+  private recap = "";
 
-  constructor(private readonly writeHandoff?: WriteHandoff) {}
+  constructor(
+    private readonly writeHandoff?: WriteHandoff,
+    readonly library = false,
+  ) {
+    if (library)
+      this.state.libraryWrites = { direct: false, tagDeletion: false };
+    this.writes = new WriteApprovals(
+      library
+        ? {
+            writeAllowed: () => true,
+            direct: () => this.state.libraryWrites!.direct,
+            tagDeletionAllowed: () => this.state.libraryWrites!.tagDeletion,
+          }
+        : undefined,
+    );
+  }
+
+  get selectedProfileId(): string {
+    return this.library ? this.libraryProfileId : getDefaultProfileId();
+  }
+
+  setLibraryWrites(patch: Partial<NonNullable<ChatState["libraryWrites"]>>) {
+    if (!this.state.libraryWrites) return;
+    this.update({ libraryWrites: { ...this.state.libraryWrites, ...patch } });
+  }
+
+  loadLibrary(): Promise<void> {
+    if (!this.library) return Promise.resolve();
+    return (this.libraryLoaded ??= loadLibrarySession()
+      .then((snapshot) => {
+        if (!snapshot) return;
+        const { messages, profileId, sessionId } = snapshot;
+        this.libraryProfileId = profileId;
+        this.nextMessageNumber =
+          1 +
+          messages.reduce((max, { id }) => Math.max(max, Number(id) || 0), 0);
+        if (sessionId && profileId)
+          this.restorableSession = { id: sessionId, profileId };
+        this.update({ messages, canRestore: this.restorableSession !== null });
+      })
+      .catch((error) =>
+        logError("Could not load the Library Agent conversation", error),
+      ));
+  }
+
+  private persistLibrary(): void {
+    if (!this.library) return;
+    const profileId = this.libraryProfileId;
+    const sessionId = this.recap
+      ? null
+      : (this.sessionId ?? this.restorableSession?.id ?? null);
+    const snapshot = { messages: this.state.messages, profileId, sessionId };
+    this.librarySave = this.librarySave
+      .then(() => saveLibrarySession(snapshot))
+      .catch((error) =>
+        logError("Could not save the Library Agent conversation", error),
+      );
+  }
 
   getState(): ChatState {
     return this.state;
@@ -127,6 +194,7 @@ export class ChatController {
 
   /** Start the selected session when the sidebar opens, before the first prompt. */
   async warm(): Promise<void> {
+    if (this.library) await this.loadLibrary();
     if (this.state.connection !== "disconnected" || this.state.canRestore)
       return;
     if (!loadProfiles().length && !(await discoverAgentProfiles()).length)
@@ -140,9 +208,7 @@ export class ChatController {
     this.connection = null;
     this.connectAbort?.abort();
     this.endTurn("cancelled");
-    if (connection) {
-      this.rememberSession(connection);
-    }
+    if (connection) this.rememberSession(connection);
     this.sessionId = null;
     this.replaying = null;
     await Promise.all([connection && this.close(connection), this.connecting]);
@@ -154,9 +220,14 @@ export class ChatController {
         reasoning: null,
       });
     }
+    if (this.library && this.libraryLoaded) {
+      this.persistLibrary();
+      await this.librarySave;
+    }
   }
 
   async selectAgent(id: string): Promise<void> {
+    if (this.library) await this.loadLibrary();
     if (this.turn || this.changingModel) return;
     const local = loadProfiles().some((profile) => profile.id === id);
     if (
@@ -165,9 +236,9 @@ export class ChatController {
     )
       return;
     if (this.turn || this.changingModel) return;
-    if (getDefaultProfileId() === id && (this.connecting || this.connection))
+    if (this.selectedProfileId === id && (this.connecting || this.connection))
       return;
-    setDefaultProfileId(id);
+    if (!this.library) setDefaultProfileId(id);
     if (this.connecting || (this.connection && this.profileId !== id))
       await this.disconnect();
     if (this.profileId !== id) {
@@ -180,6 +251,10 @@ export class ChatController {
         models: null,
         reasoning: null,
       });
+    }
+    if (this.library) {
+      this.libraryProfileId = id;
+      this.persistLibrary();
     }
     await this.connect();
   }
@@ -290,6 +365,7 @@ export class ChatController {
     }
 
     const turn = new Turn(this.nextMessageId(), context);
+    const recap = this.recap;
     this.turn = turn;
     this.update({
       execution: "executing",
@@ -315,6 +391,7 @@ export class ChatController {
         },
       ],
     });
+    this.persistLibrary();
 
     try {
       onAccepted?.();
@@ -324,10 +401,14 @@ export class ChatController {
           prompt,
           context,
           this.paperTools ? turn.assistantId : null,
+          this.state.libraryWrites,
+          recap,
         ),
       );
       turn.settle();
       if (this.turn === turn) {
+        if (!turn.cancelled && response.stopReason !== "cancelled")
+          this.recap = "";
         this.endTurn(turn.cancelled ? "cancelled" : response.stopReason);
       }
     } catch (error) {
@@ -388,6 +469,7 @@ export class ChatController {
     const abort = new AbortController();
     this.sessionId = null;
     this.restorableSession = null;
+    this.recap = "";
     this.connectAbort = abort;
     this.connecting = Promise.resolve()
       .then(async () => {
@@ -414,6 +496,7 @@ export class ChatController {
       models: null,
       reasoning: null,
     });
+    this.persistLibrary();
     await this.connecting;
   }
 
@@ -431,6 +514,10 @@ export class ChatController {
       this.disconnect(),
       Zotero.Promise.delay(SHUTDOWN_TIMEOUT_MS),
     ]);
+    if (this.library) {
+      await this.librarySave;
+      return;
+    }
     this.restorableSession = null;
     this.update({
       messages: [],
@@ -449,15 +536,17 @@ export class ChatController {
     if (this.connection) {
       return true;
     }
+    if (this.library) await this.loadLibrary();
     const saved = loadProfiles();
-    const defaultId = getDefaultProfileId();
+    const defaultId = this.selectedProfileId;
+    const available =
+      saved.find((entry) => entry.id === defaultId) ||
+      (!defaultId && saved.length)
+        ? saved
+        : mergeProfiles(saved, await discoverAgentProfiles());
     const profile =
-      saved.find((entry) => entry.id === defaultId) ??
-      getDefaultProfile(
-        !defaultId && saved.length
-          ? saved
-          : mergeProfiles(saved, await discoverAgentProfiles()),
-      );
+      available.find((entry) => entry.id === defaultId) ??
+      (this.library ? getDefaultProfile(available) : available[0]);
     if (signal.aborted) return false;
     if (!profile) {
       return this.fail(new UserError("agent-not-configured"));
@@ -486,37 +575,52 @@ export class ChatController {
       this.connection = connection;
       this.releaseSecrets = releaseSecrets;
       this.profileId = profile.id;
+      if (this.library) this.libraryProfileId = profile.id;
       this.sessionCwd = spec.cwd;
       connection.onEvent((event) => {
         if (this.connection === connection) this.handleEvent(event);
       });
       if (connection.capabilities.mcpCapabilities?.http) {
-        this.paperTools = startPaperTools((turnId) => {
-          const turn = this.turn;
-          if (
-            this.connection === connection &&
-            this.sessionId &&
-            turn?.assistantId === turnId &&
-            !turn.abort.signal.aborted &&
-            (turn.context?.paper || turn.context?.tagItems?.length)
-          ) {
-            return {
-              paper: turn.context.paper,
-              tagItems: turn.context.tagItems,
-              readSelection: turn.context.readSelection,
-              signal: turn.abort.signal,
-              recordPdfRead: (pages) => this.recordPdfRead(turn, pages),
-            };
-          }
-        }, this.writeHandoff ?? this.writes.request);
+        this.paperTools = startPaperTools(
+          (turnId) => {
+            const turn = this.turn;
+            if (
+              this.connection === connection &&
+              this.sessionId &&
+              turn?.assistantId === turnId &&
+              !turn.abort.signal.aborted &&
+              (this.library ||
+                turn.context?.paper ||
+                turn.context?.tagItems?.length)
+            ) {
+              return {
+                paper: turn.context?.paper,
+                tagItems: turn.context?.tagItems,
+                readSelection: turn.context?.readSelection,
+                signal: turn.abort.signal,
+                recordPdfRead: (pages) => this.recordPdfRead(turn, pages),
+              };
+            }
+          },
+          this.writeHandoff ?? this.writes.request,
+          this.library
+            ? {
+                library: true,
+                writeAllowed: () => true,
+                tagDeletionAllowed: () => this.state.libraryWrites!.tagDeletion,
+              }
+            : undefined,
+        );
       }
       const restoreId =
-        restore && this.restorableSession?.profileId === profile.id
+        (restore || this.library) &&
+        this.restorableSession?.profileId === profile.id
           ? this.restorableSession.id
           : null;
       await this.openSession(connection, restoreId);
       if (signal.aborted || this.connection !== connection) return false;
       this.update({ connection: "connected" });
+      this.persistLibrary();
       return true;
     } catch (error) {
       return signal.aborted ? false : this.fail(error);
@@ -528,8 +632,8 @@ export class ChatController {
   /**
    * Opens a session on the connected agent and makes it the current one.
    * Reopens the remembered session if a restoration was requested and the
-   * agent supports it; otherwise every new session starts an empty transcript,
-   * because the agent has no memory of messages sent to an earlier one.
+   * agent supports it. A new Library Agent session gets a recap on its first
+   * prompt. A new paper-sidebar session starts with an empty transcript.
    */
   private async openSession(
     connection: AgentConnection,
@@ -555,12 +659,15 @@ export class ChatController {
         // cancelled output the user saw. ACP replay can include prompt blocks
         // and output that arrived after cancellation.
         this.sessionId = restoreId;
+        this.restorableSession = null;
+        this.recap = "";
         if (response.configOptions)
           this.update(sessionChoicesFromConfig(response.configOptions));
         return;
       }
     }
-    this.update({ messages: [] });
+    if (this.library) this.recap = libraryRecap(this.state.messages);
+    else this.update({ messages: [] });
     const { sessionId, configOptions } = await connection.newSession(
       this.sessionCwd,
       mcpServers,
@@ -569,6 +676,7 @@ export class ChatController {
     this.sessionId = sessionId;
     this.restorableSession = null;
     this.update(sessionChoicesFromConfig(configOptions));
+    this.persistLibrary();
   }
 
   private handleEvent(event: AgentEvent): void {
@@ -622,6 +730,7 @@ export class ChatController {
           : message,
       ),
     });
+    this.persistLibrary();
   }
 
   private async requestAgentPermission({
@@ -712,9 +821,13 @@ export class ChatController {
     return false;
   }
 
-  /** Keeps the session id for restoration if the agent can reopen sessions. */
+  /** Keeps the previous session when it represents the current transcript. */
   private rememberSession(connection: AgentConnection): void {
-    if (this.sessionId && this.profileId && connection.supportsSessionRestore) {
+    if (
+      this.sessionId &&
+      this.profileId &&
+      (this.library ? !this.recap : connection.supportsSessionRestore)
+    ) {
       this.restorableSession = {
         id: this.sessionId,
         profileId: this.profileId,
@@ -799,10 +912,19 @@ function promptBlocks(
   text: string,
   context: TurnContext | undefined,
   toolTurnId: string | null,
+  libraryWrites?: ChatState["libraryWrites"],
+  recap?: string,
 ): acp.ContentBlock[] {
   const blocks: acp.ContentBlock[] = [{ type: "text", text }];
   const paper = context?.paper;
   const tagItems = context?.tagItems;
+  if (recap) blocks.push({ type: "text", text: recap });
+  if (libraryWrites && toolTurnId) {
+    blocks.push({
+      type: "text",
+      text: `Use the zotero-sapientia tools with turnId "${toolTurnId}" for the personal Zotero library. Use search_library and list_library_collections, then pass itemKey or itemID to read tools and cite exact PDF URIs. Use propose_zotero_write for requested writes, in batches of at most 50 operations, and wait for results. For bibliographic corrections use your available sources and supply evidence URLs and summaries. Report unresolved records with report_metadata_unresolved when evidence conflicts or is unreliable. The current mode is ${libraryWrites.direct ? "direct writes" : "batch approval"}. Tag deletion is ${libraryWrites.tagDeletion ? "enabled" : "disabled"}.`,
+    });
+  }
   if (paper) {
     const {
       itemID,

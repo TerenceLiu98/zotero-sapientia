@@ -1,6 +1,6 @@
 # Sapientia
 
-Zotero 10 plugin for chatting with your own Agent Client Protocol (ACP) agent in a sidebar alongside the library and reader tabs.
+Zotero 10 plugin for chatting with your own Agent Client Protocol (ACP) agent in the paper sidebar or in a dedicated Library Agent window.
 
 ## Build and install
 
@@ -18,6 +18,14 @@ The agent can read the current paper's metadata, PDF text, current PDF selection
 
 The plugin registers its loopback Model Context Protocol (MCP) endpoint when the agent advertises HTTP MCP over ACP. The local Codex configuration used for verification had no Zotero MCP tools, so the endpoint covers those reads directly with Zotero's bundled document worker.
 
+## Library Agent
+
+Open **Library Agent** from the Zotero toolbar. Its conversation and selected Agent are independent of the paper sidebar. With HTTP MCP support, the Agent can search your personal library by title, author, DOI, year, tag, or collection, then read the papers it finds.
+
+The Agent can create collections, update their membership, propose tags, and correct metadata with source evidence. **Request approval** previews each batch of up to 50 operations. **Direct writes** applies validated batches for the current Zotero run. Both modes record changes in **Write history** for undo. Tag deletion has its own permission.
+
+Zotero stores the conversation in its local profile. When the Agent cannot reopen the previous ACP session, the next prompt includes a recap of up to 12 turns and 48 KiB. To continue an interrupted job, send a new request.
+
 ## Approve and undo writes
 
 When reading an attached PDF, the agent can propose updates to the parent Zotero item's type, bibliographic fields, and creators. The approval card shows the old and new values, including fields cleared when switching types. Approved updates are available in **Write history**.
@@ -31,6 +39,7 @@ The approval card follows the public interaction design of the [affectUI Approva
 ## Development
 
 - Set `ZOTERO_PLUGIN_ZOTERO_BIN_PATH` to the Zotero executable and run `npm test` for integration tests in an isolated Zotero profile and library.
+- Run `npm run test:library-restart` with the same executable setting to check Library Agent continuity across two Zotero processes using the same isolated profile and library.
 - Set `SAPIENTIA_TEST_CODEX_ACP` to the absolute path of an authenticated Codex ACP adapter to also run the live paper test. It sends synthetic fixture data to the configured provider and checks a single-page answer, a selected passage, a range summary, and a sidebar citation jump.
 - Run `npm run test:typecheck` for the test and source types and `npm run lint:check` for formatting and lint.
 - For interactive development with `npm start`, see `.env.example` for Zotero profile and data directory settings.
@@ -38,6 +47,8 @@ The approval card follows the public interaction design of the [affectUI Approva
 Native Gecko subprocess transport was validated on Zotero 10.0.9 for macOS with Codex ACP and the fixture agent. Zotero launches and owns the agent process directly.
 
 On Zotero 10.0.9 for macOS with Codex CLI 0.172.0 and Codex ACP 2.12.0, the live test answered a question from physical page 1, explained the selected text, and summarized pages 2–3 of a synthetic three-page PDF. Clicking the last citation opened physical page 3 of that attachment.
+
+Library Agent acceptance passed on Zotero 10.0.9 for macOS with the repository's ACP fixture agent 1.0.0. In the isolated profile, the Agent found two papers, added both to a collection, and proposed a metadata correction with source evidence. The correction was approved and undone. A second Zotero process restored the same ACP session, searched the same library, and opened in approval mode with the interrupted write cancelled.
 
 ## Releases
 

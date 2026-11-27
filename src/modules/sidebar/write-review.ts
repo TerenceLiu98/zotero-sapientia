@@ -4,6 +4,8 @@ import {
   CircleAlert,
   FilePenLine,
   FilePlus2,
+  FolderMinus,
+  FolderPlus,
   History,
   LoaderCircle,
   ShieldCheck,
@@ -30,6 +32,10 @@ const labels: Record<ApprovedChange["operation"], MessageId> = {
   add_tags: "write-add-tags",
   delete_tags: "write-delete-tags",
   update_metadata: "write-update-metadata",
+  create_collection: "write-create-collection",
+  add_to_collection: "write-add-to-collection",
+  remove_from_collection: "write-remove-from-collection",
+  report_metadata_unresolved: "write-report-metadata-unresolved",
 };
 const icons = {
   create_note: FilePlus2,
@@ -37,6 +43,10 @@ const icons = {
   add_tags: Tag,
   delete_tags: Tag,
   update_metadata: FilePenLine,
+  create_collection: FolderPlus,
+  add_to_collection: FolderPlus,
+  remove_from_collection: FolderMinus,
+  report_metadata_unresolved: CircleAlert,
 };
 
 export function createWriteReview(doc: Document, writes: WriteApprovals) {
@@ -175,6 +185,10 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
     multiple: boolean,
   ) {
     const content = change.change;
+    const target = outcome?.target ?? change.target;
+    const collectionTarget =
+      "collectionKey" in target ? target.collectionKey : undefined;
+    const evidence = "evidence" in content ? content.evidence : undefined;
     const isNote = "html" in content;
     const payload = isNote
       ? notePreview(content.html)
@@ -240,14 +254,122 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
         doc,
         "dl",
         { class: "sap-write-fields" },
-        h(doc, "dt", {}, getString("write-field-item")),
+        h(
+          doc,
+          "dt",
+          {},
+          getString(
+            change.operation === "create_collection"
+              ? "write-field-collection"
+              : "write-field-item",
+          ),
+        ),
         h(
           doc,
           "dd",
           {},
-          multiple ? `${change.target.title} ` : null,
-          h(doc, "span", { class: "sap-write-target" }, change.target.itemKey),
+          multiple || change.operation === "create_collection"
+            ? `${target.title} `
+            : null,
+          h(
+            doc,
+            "span",
+            { class: "sap-write-target" },
+            target.itemKey ?? collectionTarget,
+          ),
+          "unchanged" in content && content.unchanged
+            ? h(
+                doc,
+                "div",
+                { class: "sap-write-status" },
+                getString("write-outcome-unchanged"),
+              )
+            : null,
         ),
+        "collection" in content
+          ? h(doc, "dt", {}, getString("write-field-collection"))
+          : null,
+        "collection" in content
+          ? h(
+              doc,
+              "dd",
+              {},
+              content.collection.title,
+              " ",
+              h(
+                doc,
+                "span",
+                { class: "sap-write-target" },
+                content.collection.key,
+              ),
+              content.before === content.after
+                ? h(
+                    doc,
+                    "div",
+                    { class: "sap-write-status" },
+                    getString("write-outcome-unchanged"),
+                  )
+                : null,
+            )
+          : null,
+        "parent" in content && content.parent
+          ? h(doc, "dt", {}, getString("write-field-parent-collection"))
+          : null,
+        "parent" in content && content.parent
+          ? h(
+              doc,
+              "dd",
+              {},
+              content.parent.title,
+              " ",
+              h(doc, "span", { class: "sap-write-target" }, content.parent.key),
+            )
+          : null,
+        "reason" in content
+          ? h(doc, "dt", {}, getString("write-field-reason"))
+          : null,
+        "reason" in content ? h(doc, "dd", {}, content.reason) : null,
+        evidence?.length
+          ? h(doc, "dt", {}, getString("write-field-evidence"))
+          : null,
+        evidence?.length
+          ? h(
+              doc,
+              "dd",
+              {},
+              h(
+                doc,
+                "ul",
+                { class: "sap-write-tags" },
+                ...evidence.map(({ url, summary }) =>
+                  h(
+                    doc,
+                    "li",
+                    {},
+                    summary,
+                    h(
+                      doc,
+                      "div",
+                      {},
+                      h(
+                        doc,
+                        "a",
+                        {
+                          href: url,
+                          title: url,
+                          click: (event: Event) => {
+                            event.preventDefault();
+                            Zotero.launchURL(url);
+                          },
+                        },
+                        new URL(url).hostname,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : null,
         change.note && "noteKey" in change.change
           ? h(doc, "dt", {}, getString("write-field-note"))
           : null,
@@ -406,25 +528,30 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
     const running = phase === "running";
     const finished = !pending && !running;
     const failed = outcomes.some(({ status }) => status === "failed");
+    const unresolved = outcomes.some(({ status }) => status === "unresolved");
     const multiple = proposal.operations.length > 1;
     const first = proposal.operations[0];
     const sameItem = proposal.operations.every(
-      ({ target }) => target.itemID === first.target.itemID,
+      ({ target }) =>
+        target.itemID !== undefined && target.itemID === first.target.itemID,
     );
     const active = doc.activeElement;
     if (previous?.id !== review.id) {
       list.scrollTop = 0;
       detailsOpen = false;
     } else if (finished && previous.phase !== phase) {
-      detailsOpen = failed;
+      detailsOpen = failed || unresolved;
     }
     title.textContent = getString(
       multiple ? "write-review" : labels[first.operation],
     );
     title.title = title.textContent;
-    subtitle.textContent = sameItem
-      ? first.target.title
-      : getString("write-change-count", { count: proposal.operations.length });
+    subtitle.textContent =
+      !multiple || sameItem
+        ? first.target.title
+        : getString("write-change-count", {
+            count: proposal.operations.length,
+          });
     element.setAttribute("aria-label", title.textContent);
     element.dataset.phase = finished ? "resolved" : phase;
     let treatment = "neutral";
@@ -435,6 +562,7 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
         ({ operation }) =>
           operation === "edit_note" ||
           operation === "delete_tags" ||
+          operation === "remove_from_collection" ||
           operation === "update_metadata",
       );
       treatment = medium ? "medium" : "low";
@@ -447,9 +575,14 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
       statusLabel = "write-result-errors";
       glyph = CircleAlert;
     } else if (phase === "cancelled") {
-      const denied = outcomes.every(({ status }) => status === "cancelled");
+      const denied = outcomes.every(
+        ({ status }) => status === "cancelled" || status === "unresolved",
+      );
       statusLabel = denied ? "write-result-denied" : "write-result-stopped";
       glyph = X;
+    } else if (unresolved) {
+      statusLabel = "write-outcome-unresolved";
+      glyph = CircleAlert;
     } else {
       treatment = "approved";
       statusLabel = "write-result-approved";

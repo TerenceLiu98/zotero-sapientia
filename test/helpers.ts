@@ -12,6 +12,69 @@ export const SECRET = "sapiEntia-secret-token-4711";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 
+/** Create a PDF fixture with plain text, blank, or image-only pages. */
+export async function makePaper(
+  directory: string,
+  title: string,
+  marker: string,
+  {
+    parent,
+    pages = [`${marker} page one`, `${marker} page two`],
+    complete = true,
+  }: {
+    parent?: Zotero.Item;
+    pages?: (string | null)[];
+    complete?: boolean;
+  } = {},
+) {
+  const stream = (text: string | null) => {
+    const content =
+      text === null
+        ? "q 10 0 0 10 40 720 cm BI /W 1 /H 1 /CS /G /BPC 8 /F /AHx ID 00> EI Q\n"
+        : text
+          ? `BT /F1 14 Tf 40 720 Td (${text}) Tj ET\n`
+          : "";
+    return `<< /Length ${content.length} >>\nstream\n${content}endstream`;
+  };
+  const page = (streamID: number) =>
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${streamID} 0 R >>`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Kids [${pages.map((_, index) => `${4 + index} 0 R`).join(" ")}] /Count ${pages.length} >>`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ...pages.map((_, index) => page(4 + pages.length + index)),
+    ...pages.map(stream),
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((object, index) => {
+    const offset = pdf.length;
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  const start = pdf.length;
+  const size = objects.length + 1;
+  pdf += `xref\n0 ${size}\n0000000000 65535 f \n${offsets.join("")}trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF\n`;
+  const path = PathUtils.join(directory, `${marker}.pdf`);
+  await IOUtils.writeUTF8(path, pdf);
+  const item = parent ?? new Zotero.Item("journalArticle");
+  if (!parent) {
+    item.setField("title", title);
+    if (complete) {
+      item.setField("date", "2024");
+      item.setField("DOI", `10.1000/${marker}`);
+      item.setField("abstractNote", `Abstract of ${marker}`);
+      item.setCreators([
+        { creatorType: "author", firstName: "Ada", lastName: "Bell" },
+      ]);
+    }
+    await item.saveTx();
+  }
+  return Zotero.Attachments.importFromFile({
+    file: path,
+    parentItemID: item.id,
+  });
+}
+
 /** The plugin under test, as `addon/bootstrap.js` reaches it. */
 export function plugin(): NonNullable<typeof Zotero.Sapientia> {
   assert.isOk(Zotero.Sapientia, "the plugin is running");
@@ -30,6 +93,8 @@ export interface FixtureAgent {
   received(): Promise<Record<string, any>[]>;
   /** What a running instance reported about itself when it started. */
   processes(): Promise<Record<string, any>[]>;
+  /** Let the plugin own cleanup during an intentional Zotero restart. */
+  keepUntilZoteroShutdown(): void;
 }
 
 /** Copies the fixture agent to a fresh directory. */
@@ -81,6 +146,10 @@ export async function makeAgent(name: string): Promise<FixtureAgent> {
       return (await received())
         .filter((entry) => entry.process)
         .map((entry) => ({ ...entry.process, method: entry.method }));
+    },
+    keepUntilZoteroShutdown() {
+      const index = agents.indexOf(agent);
+      if (index >= 0) agents.splice(index, 1);
     },
   };
   agents.push(agent);

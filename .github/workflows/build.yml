@@ -51,6 +51,8 @@ jobs:
           printf 'ZOTERO_PLUGIN_ZOTERO_BIN_PATH=%s/zotero\n' "$zotero_dir" >> "$GITHUB_ENV"
       - name: Run Zotero fixture tests
         run: xvfb-run --auto-servernum --server-args="-screen 0 1440x1000x24" npm test
+      - name: Verify Library Agent across Zotero restarts
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1440x1000x24" npm run test:library-restart
       - name: Build release package
         run: npm run build
       - name: Verify package and prepare checksums

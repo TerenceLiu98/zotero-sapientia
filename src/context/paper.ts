@@ -170,6 +170,21 @@ function currentSelection(reader: Reader): Selection | undefined {
   return current?.annotation?.text?.trim() ? current.annotation : undefined;
 }
 
+function activeReader(window: Window): Reader | undefined {
+  const tabs = window.Zotero_Tabs;
+  return tabs.selectedType === "reader"
+    ? Zotero.Reader.getByTabID(tabs.selectedID)
+    : undefined;
+}
+
+export function readActivePaperSelection(
+  window: Window,
+): SelectedText | undefined {
+  const reader = activeReader(window);
+  if (reader?._item?.isPDFAttachment())
+    return selectionFrom(reader._item, currentSelection(reader));
+}
+
 export function createPaperContext(
   window: Window,
   onChange: () => void,
@@ -184,15 +199,8 @@ export function createPaperContext(
     window.document.getElementById("zotero-collections-tree"),
   ];
 
-  function activeReader(): Reader | undefined {
-    const tabs = window.Zotero_Tabs;
-    return tabs.selectedType === "reader"
-      ? Zotero.Reader.getByTabID(tabs.selectedID)
-      : undefined;
-  }
-
   function target() {
-    const reader = activeReader();
+    const reader = activeReader(window);
     let item: Zotero.Item | undefined;
     if (reader) {
       item = reader._item;
@@ -234,13 +242,6 @@ export function createPaperContext(
     if (papers.size > 1) return Array.from(papers, paperMetadata);
   }
 
-  function readSelection(): SelectedText | undefined {
-    const reader = activeReader();
-    if (reader?._item?.isPDFAttachment()) {
-      return selectionFrom(reader._item, currentSelection(reader));
-    }
-  }
-
   function refresh() {
     if (timer === undefined) return;
     const signature = JSON.stringify(read() ?? readTagItems());
@@ -253,7 +254,8 @@ export function createPaperContext(
   const onPopup: _ZoteroTypes.Reader.EventHandler<
     "renderTextSelectionPopup"
   > = ({ reader, doc, params, append }) => {
-    if (reader !== activeReader() || !reader._item?.isPDFAttachment()) return;
+    if (reader !== activeReader(window) || !reader._item?.isPDFAttachment())
+      return;
     const selection = selectionFrom(reader._item, params.annotation);
     if (!selection) return;
     const button = doc.createElement("button");
@@ -262,7 +264,7 @@ export function createPaperContext(
     button.setAttribute("data-tabstop", "1");
     button.textContent = addToChatLabel;
     button.addEventListener("click", () => {
-      if (!disposed && reader === activeReader()) onAttach(selection);
+      if (!disposed && reader === activeReader(window)) onAttach(selection);
     });
     append(button);
     refresh();
@@ -300,5 +302,11 @@ export function createPaperContext(
     Zotero.Reader.unregisterEventListener("renderTextSelectionPopup", onPopup);
   }
 
-  return { read, readTagItems, readSelection, setVisible, dispose };
+  return {
+    read,
+    readTagItems,
+    readSelection: () => readActivePaperSelection(window),
+    setVisible,
+    dispose,
+  };
 }

@@ -1,24 +1,34 @@
 import { logError } from "../utils/log";
 import { metadataMatches, setMetadata, type MetadataChange } from "./metadata";
 import {
+  existingCollection,
+  requireCollection,
   resolveItem,
   resolveNote,
   tagDeletionAllowed,
   writeAllowed,
   type ApprovedChange,
   type ItemIdentity,
+  type WriteTarget,
 } from "./request";
 
 type TagChange = { tag: string; before: number | null; after: number | null };
 type Reversal =
   | { kind: "tags"; tags: TagChange[] }
   | { kind: "metadata"; change: MetadataChange }
+  | { kind: "collection-membership"; collectionKey: string; after: boolean }
+  | {
+      kind: "created-collection";
+      collectionKey: string;
+      name: string;
+      parentCollectionKey?: string;
+    }
   | { kind: "created-note"; noteKey: string; after: string }
   | { kind: "edited-note"; noteKey: string; before: string; after: string };
 
 export interface HistoryEntry {
   id: string;
-  target: ItemIdentity;
+  target: WriteTarget;
   operation: ApprovedChange["operation"];
   time: number;
   undone: boolean;
@@ -86,11 +96,32 @@ async function transaction<T>(run: (track: TrackChanges) => Promise<T>) {
 }
 
 async function apply(
-  change: ApprovedChange,
+  change: Exclude<
+    ApprovedChange,
+    { operation: "create_collection" | "report_metadata_unresolved" }
+  >,
   track: TrackChanges,
+  canDeleteTags: () => boolean,
 ): Promise<Reversal | undefined> {
   const parent = await resolveItem(change.target);
   switch (change.operation) {
+    case "add_to_collection":
+    case "remove_from_collection": {
+      const { collection, before, after } = change.change;
+      if (before === after) return;
+      const target = await requireCollection(collection.key);
+      if (target.name !== collection.title)
+        throw new Error(
+          "The collection changed since preview. Request a new proposal.",
+        );
+      if (parent.inCollection(target.id) === after) return;
+      await setMembership(parent, target.id, after, track);
+      return {
+        kind: "collection-membership",
+        collectionKey: collection.key,
+        after,
+      };
+    }
     case "update_metadata": {
       const metadata = change.change;
       if (
@@ -138,7 +169,7 @@ async function apply(
     case "delete_tags":
     case "add_tags": {
       const deleting = change.operation === "delete_tags";
-      if (deleting && !tagDeletionAllowed())
+      if (deleting && !canDeleteTags())
         throw new Error("Tag deletion is disabled in Zotero settings.");
       const current = tagTypes(parent);
       const tags: TagChange[] = [];
@@ -158,29 +189,83 @@ async function apply(
   }
 }
 
+async function setMembership(
+  item: Zotero.Item,
+  collectionID: number,
+  included: boolean,
+  track: TrackChanges,
+) {
+  track(item, "collections", "primaryData");
+  if (included) item.addToCollection(collectionID);
+  else item.removeFromCollection(collectionID);
+  await item.save();
+}
+
 export async function applyWithHistory(
   change: ApprovedChange,
   signal: AbortSignal,
-): Promise<string | null | undefined> {
+  permissions?: {
+    writeAllowed?: () => boolean;
+    tagDeletionAllowed?: () => boolean;
+  },
+): Promise<{ target: WriteTarget; historyID?: string } | null> {
   await init();
   // Keep the Zotero mutation and its undo data in the same transaction.
   return transaction(async (track) => {
     if (signal.aborted) return null;
-    if (!writeAllowed()) throw new Error("Zotero is in read-only mode.");
-    const reversal = await apply(change, track);
-    if (!reversal) return;
+    if (!(permissions?.writeAllowed ?? writeAllowed)())
+      throw new Error("Zotero is in read-only mode.");
+    let target = change.target;
+    let reversal: Reversal | undefined;
+    if (change.operation === "create_collection") {
+      const { name, parent: expectedParent, unchanged } = change.change;
+      const parent = expectedParent
+        ? await requireCollection(expectedParent.key)
+        : undefined;
+      if (expectedParent && parent?.name !== expectedParent.title)
+        throw new Error(
+          "The parent collection changed since preview. Request a new proposal.",
+        );
+      const existing = existingCollection(name, parent);
+      if (existing)
+        return { target: { ...target, collectionKey: existing.key } };
+      if (unchanged)
+        throw new Error(
+          "The collection has changed since preview. Request a new proposal.",
+        );
+      const collection = new Zotero.Collection({
+        name,
+        libraryID: target.libraryID,
+        parentID: parent?.id,
+      });
+      await collection.save();
+      target = { ...change.target, collectionKey: collection.key };
+      reversal = {
+        kind: "created-collection",
+        collectionKey: collection.key,
+        name,
+        parentCollectionKey: parent?.key,
+      };
+    } else if (change.operation !== "report_metadata_unresolved") {
+      reversal = await apply(
+        change,
+        track,
+        permissions?.tagDeletionAllowed ?? tagDeletionAllowed,
+      );
+    }
+    if (!reversal) return { target };
     const id = Zotero.Utilities.randomString(24);
     await Zotero.DB.queryAsync(
       `INSERT INTO ${table} (id, time, target, operation, reversal) VALUES (?, ?, ?, ?, ?)`,
       [
         id,
         Date.now(),
-        JSON.stringify(change.target),
+        JSON.stringify(target),
         change.operation,
         JSON.stringify(reversal),
       ],
     );
-    return id;
+    return { target, historyID: id };
   });
 }
 
@@ -193,37 +278,56 @@ export async function undoWrite(id: string): Promise<void> {
         [id],
       )) ?? [];
     if (!row) throw new Error("This change is no longer available to undo.");
-    const parent = await resolveItem(JSON.parse(row.target) as ItemIdentity);
     const reversal = JSON.parse(row.reversal) as Reversal;
-    if (reversal.kind === "metadata") {
-      if (!metadataMatches(parent, reversal.change, "after"))
-        throw new Error("The item metadata has changed since approval.");
-      track(parent, "primaryData", "itemData", "creators");
-      setMetadata(parent, reversal.change, "before");
-      await parent.save();
-    } else if (reversal.kind === "tags") {
-      const current = tagTypes(parent);
+    if (reversal.kind === "created-collection") {
+      const collection = await requireCollection(reversal.collectionKey);
       if (
-        reversal.tags.some(
-          ({ tag, after }) => (current.get(tag) ?? null) !== after,
-        )
+        collection.getChildItems(true, true).length ||
+        collection.getChildCollections(true, true).length ||
+        collection.name !== reversal.name ||
+        (collection.parentKey || undefined) !== reversal.parentCollectionKey
       )
-        throw new Error("These tags have changed since approval.");
-      track(parent, "tags", "primaryData");
-      for (const { tag, before } of reversal.tags) {
-        if (before === null) parent.removeTag(tag);
-        else parent.addTag(tag, before);
-      }
-      await parent.save();
+        throw new Error(
+          "The collection has changed or gained contents. It cannot be undone.",
+        );
+      await collection.erase({ deleteItems: false });
     } else {
-      const note = await resolveNote(parent, reversal.noteKey);
-      if (note.getNote() !== reversal.after)
-        throw new Error("This note has changed since approval.");
-      track(note, "note", "primaryData", "deleted");
-      track(parent, "childItems");
-      if (reversal.kind === "created-note") note.deleted = true;
-      else note.setNote(reversal.before);
-      await note.save();
+      const parent = await resolveItem(JSON.parse(row.target) as ItemIdentity);
+      if (reversal.kind === "metadata") {
+        if (!metadataMatches(parent, reversal.change, "after"))
+          throw new Error("The item metadata has changed since approval.");
+        track(parent, "primaryData", "itemData", "creators");
+        setMetadata(parent, reversal.change, "before");
+        await parent.save();
+      } else if (reversal.kind === "tags") {
+        const current = tagTypes(parent);
+        if (
+          reversal.tags.some(
+            ({ tag, after }) => (current.get(tag) ?? null) !== after,
+          )
+        )
+          throw new Error("These tags have changed since approval.");
+        track(parent, "tags", "primaryData");
+        for (const { tag, before } of reversal.tags) {
+          if (before === null) parent.removeTag(tag);
+          else parent.addTag(tag, before);
+        }
+        await parent.save();
+      } else if (reversal.kind === "collection-membership") {
+        const collection = await requireCollection(reversal.collectionKey);
+        if (parent.inCollection(collection.id) !== reversal.after)
+          throw new Error("Collection membership has changed since approval.");
+        await setMembership(parent, collection.id, !reversal.after, track);
+      } else {
+        const note = await resolveNote(parent, reversal.noteKey);
+        if (note.getNote() !== reversal.after)
+          throw new Error("This note has changed since approval.");
+        track(note, "note", "primaryData", "deleted");
+        track(parent, "childItems");
+        if (reversal.kind === "created-note") note.deleted = true;
+        else note.setNote(reversal.before);
+        await note.save();
+      }
     }
     await Zotero.DB.queryAsync(`UPDATE ${table} SET undone = 1 WHERE id = ?`, [
       id,

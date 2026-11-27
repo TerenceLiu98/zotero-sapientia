@@ -6,6 +6,7 @@ import {
   type HistoryEntry,
 } from "./history";
 import type {
+  ApprovedChange,
   WriteHandoff,
   WriteOutcome,
   WriteProposal,
@@ -33,11 +34,34 @@ interface ActiveReview {
   finish(result: WriteResult): void;
 }
 
+interface WritePermissions {
+  writeAllowed?: () => boolean;
+  direct?: () => boolean;
+  tagDeletionAllowed?: () => boolean;
+}
+
+function unresolvedOutcome(
+  change: Extract<ApprovedChange, { operation: "report_metadata_unresolved" }>,
+): WriteOutcome {
+  return {
+    target: change.target,
+    operation: change.operation,
+    status: "unresolved",
+    reason: change.change.reason,
+  };
+}
+
 export class WriteApprovals {
   private nextID = 0;
   private active: ActiveReview | null = null;
   private review: Review | null = null;
   private readonly listeners = new Set<(review: Review | null) => void>();
+
+  constructor(private readonly permissions: WritePermissions = {}) {}
+
+  private canWrite() {
+    return (this.permissions.writeAllowed ?? writeAllowed)();
+  }
 
   subscribe(listener: (review: Review | null) => void) {
     this.listeners.add(listener);
@@ -51,7 +75,7 @@ export class WriteApprovals {
   }
 
   request: WriteHandoff = (proposal, signal) => {
-    if (signal.aborted || !writeAllowed())
+    if (signal.aborted || !this.canWrite())
       return Promise.resolve({ status: "cancelled", outcomes: [] });
     if (this.active) return Promise.resolve({ status: "busy", outcomes: [] });
 
@@ -67,14 +91,21 @@ export class WriteApprovals {
         },
       };
       signal.addEventListener("abort", cancel, { once: true });
-      this.publish(this.active.view);
+      if (
+        this.permissions.direct?.() ||
+        proposal.operations.every(
+          ({ operation }) => operation === "report_metadata_unresolved",
+        )
+      )
+        void this.confirm(id);
+      else this.publish(this.active.view);
     });
   };
 
   async confirm(id: number) {
     const active = this.active;
     if (active?.view.id !== id || active.view.phase !== "pending") return;
-    if (!writeAllowed()) {
+    if (!this.canWrite()) {
       this.cancel(id);
       return;
     }
@@ -86,11 +117,21 @@ export class WriteApprovals {
       const { target, operation } = change;
       let outcome: WriteOutcome;
       try {
-        const historyID = await applyWithHistory(change, signal);
-        if (historyID === null) break;
-        outcome = historyID
-          ? { target, operation, status: "applied", historyID }
-          : { target, operation, status: "unchanged" };
+        if (change.operation === "report_metadata_unresolved") {
+          outcome = unresolvedOutcome(change);
+        } else {
+          const result = await applyWithHistory(
+            change,
+            signal,
+            this.permissions,
+          );
+          if (result === null) break;
+          outcome = {
+            ...result,
+            operation,
+            status: result.historyID ? "applied" : "unchanged",
+          };
+        }
       } catch (error) {
         outcome = {
           target,
@@ -137,11 +178,15 @@ export class WriteApprovals {
       status,
       outcomes: [
         ...outcomes,
-        ...remaining.map(({ target, operation }): WriteOutcome => ({
-          target,
-          operation,
-          status: "cancelled",
-        })),
+        ...remaining.map((change): WriteOutcome =>
+          change.operation === "report_metadata_unresolved"
+            ? unresolvedOutcome(change)
+            : {
+                target: change.target,
+                operation: change.operation,
+                status: "cancelled",
+              },
+        ),
       ],
     };
     this.active = null;

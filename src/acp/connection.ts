@@ -21,6 +21,7 @@ const STDERR_EXCERPT_CHARS = 500;
 
 /** JSON-RPC "resource not found", which is how an agent reports an unknown session. */
 const SESSION_NOT_FOUND = -32002;
+const METHOD_NOT_FOUND = -32601;
 
 export type AgentEvent =
   /** A `session/update` notification, delivered in arrival order. */
@@ -131,7 +132,7 @@ export class AgentConnection {
    * Reopens a session the agent was in before. The agent replays the session
    * as `update` events before this resolves.
    *
-   * @returns null if the agent no longer has the session.
+   * @returns null if the session is unavailable or the method is unsupported.
    */
   async loadSession(
     sessionId: string,
@@ -153,7 +154,7 @@ export class AgentConnection {
     } catch (error) {
       if (
         error instanceof acp.RequestError &&
-        error.code === SESSION_NOT_FOUND
+        (error.code === SESSION_NOT_FOUND || error.code === METHOD_NOT_FOUND)
       ) {
         return null;
       }
