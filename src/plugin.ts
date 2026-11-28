@@ -4,6 +4,7 @@ import { loadProfiles } from "./agents/store";
 import { ChatController } from "./chat/controller";
 import { renderSettingsPane } from "./modules/settings/pane";
 import { createLibraryWindow } from "./modules/library-window";
+import { rewriteMarginaliaDraft } from "./modules/marginalia/agent";
 import {
   canEditAnnotation,
   captureAnnotationSource,
@@ -14,6 +15,7 @@ import { openAnnotationDraft } from "./modules/marginalia/editor";
 import { mountMarginaliaReader } from "./modules/marginalia/reader";
 import { mountSelectionShortcut } from "./modules/marginalia/shortcut";
 import { mountChatSidebar } from "./modules/sidebar/section";
+import { UserError } from "./utils/errors";
 import { installGlobals } from "./utils/globals";
 import { getString, initLocale } from "./utils/locale";
 import { logError, redactor } from "./utils/log";
@@ -129,15 +131,30 @@ export function createPlugin(): Plugin {
     const pref = `${config.prefsPrefix}.marginalia`;
     const marginalia = mountMarginaliaReader({
       enabled: () => Zotero.Prefs.get(pref, true) === true,
-      ask(reader, annotation) {
+      ask(reader, annotation, draft?: string) {
         const source = captureStoredAnnotation(annotation);
         const window =
           Zotero.getMainWindows().find(
-            (candidate) => candidate.Zotero_Tabs?._getTab(reader.tabID).tab,
+            (candidate) => candidate.Zotero_Tabs?._getTab(reader.tabID)?.tab,
           ) ?? Zotero.getMainWindow();
-        if (source && window) sidebars.get(window)?.askFromAnnotation(source);
+        if (source && window)
+          sidebars.get(window)?.askFromAnnotation({
+            ...source,
+            comment: draft ?? source.comment,
+          });
       },
       editable: canEditAnnotation,
+      async rewrite(annotation, draft, action, signal) {
+        const source = captureStoredAnnotation(annotation);
+        if (!source) throw new UserError("marginalia-target-unavailable");
+        return rewriteMarginaliaDraft(
+          chat.selectedAgentModel,
+          source,
+          draft,
+          action,
+          signal,
+        );
+      },
       async saveComment(annotation, comment, previousComment?: string) {
         const source = captureStoredAnnotation(annotation);
         if (!source)

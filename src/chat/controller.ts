@@ -131,6 +131,12 @@ export class ChatController {
       : getDefaultProfileId();
   }
 
+  get selectedAgentModel(): { profileId: string; modelId?: string } {
+    return this.connection && this.profileId
+      ? { profileId: this.profileId, modelId: this.state.models?.currentId }
+      : { profileId: this.selectedProfileId };
+  }
+
   setLibraryWrites(patch: Partial<NonNullable<ChatState["libraryWrites"]>>) {
     if (!this.state.libraryWrites) return;
     this.update({ libraryWrites: { ...this.state.libraryWrites, ...patch } });

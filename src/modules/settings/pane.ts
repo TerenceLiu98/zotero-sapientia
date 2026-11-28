@@ -22,7 +22,7 @@ import { getString, type MessageId } from "../../utils/locale";
 import { agentIcon } from "../ui/agent-icon";
 import { h, iconButton, lucideIcon } from "../ui/dom";
 import { SURFACE_STYLES } from "../ui/styles";
-import { createSelectionShortcutSettings } from "../marginalia/shortcut-settings";
+import { createSelectionShortcutRows } from "../marginalia/shortcut-settings";
 import { createLibraryModelSettings } from "./library-model";
 import { SETTINGS_STYLES } from "./styles";
 
@@ -160,16 +160,35 @@ export function renderSettingsPane(
     ),
     h(
       doc,
-      "div",
-      { class: "sap-prefs-section" },
+      "section",
+      {
+        class: "sap-prefs-section",
+        "aria-labelledby": id("marginalia-heading"),
+      },
       h(
         doc,
-        "label",
-        { class: "sap-prefs-row", for: marginaliaEnabled.id },
-        marginaliaEnabled,
+        "h2",
+        { class: "sap-prefs-heading", id: id("marginalia-heading") },
         marginaliaLabel,
       ),
-      createSelectionShortcutSettings(doc),
+      h(
+        doc,
+        "div",
+        { class: "sap-prefs-list" },
+        h(
+          doc,
+          "div",
+          { class: "sap-prefs-option" },
+          h(
+            doc,
+            "label",
+            { for: marginaliaEnabled.id },
+            getString("marginalia-settings-enable"),
+          ),
+          marginaliaEnabled,
+        ),
+        ...createSelectionShortcutRows(doc),
+      ),
     ),
   );
 

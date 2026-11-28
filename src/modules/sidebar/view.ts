@@ -513,6 +513,17 @@ export function createChatView(
 
   function setAnnotationSource(source?: AnnotationSource) {
     annotationSource = source;
+    const comment = source?.comment.trim();
+    if (comment) {
+      const { input } = composer;
+      const draft = input.value.trim();
+      if (draft !== comment && !draft.startsWith(`${comment}\n\n`)) {
+        input.value = `${comment}\n\n${input.value}`;
+        input.dispatchEvent(new doc.defaultView!.Event("input"));
+      }
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
     render(chat.getState());
   }
 

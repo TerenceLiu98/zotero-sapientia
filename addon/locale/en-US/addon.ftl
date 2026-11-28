@@ -157,6 +157,7 @@ write-outcome-waiting = Waiting
 permission-title = Agent write access
 library-agent = Library Agent
 marginalia-settings = Marginalia
+marginalia-settings-enable = Show in PDF Reader
 marginalia-comment = Annotation comment
 marginalia-target-unavailable = The original PDF or annotation is unavailable.
 marginalia-target-read-only = Zotero marks this PDF or annotation as read-only.
@@ -216,8 +217,26 @@ marginalia-shortcut-failed = The selection request failed.
 
 marginalia-reader-toolbar = Marginalia
 marginalia-reader-edit = Edit annotation comment
+marginalia-reader-edit-action = Edit
 marginalia-reader-close = Close comment
 marginalia-reader-page = Page { $page }
 marginalia-reader-show-comment = Show comment on page { $page }
+marginalia-reader-highlight = Highlight
+marginalia-reader-underline = Underline
+marginalia-reader-expand-card = Expand comment
+marginalia-reader-actions = Comment actions
+marginalia-reader-ai = AI actions
+marginalia-reader-ask = Ask AI
+marginalia-reader-ask-action = Ask
+marginalia-reader-concise = Make concise
+marginalia-reader-polish = Polish
+marginalia-reader-expand = Expand
+marginalia-reader-character-count =
+    { $count ->
+        [one] { $count } character
+       *[other] { $count } characters
+    }
+marginalia-reader-model-unavailable = The selected model “{ $model }” is unavailable.
+marginalia-reader-rewrite-error = The comment could not be rewritten.
 marginalia-reader-comment-changed = The comment changed while you were editing it.
 marginalia-reader-save-error = The annotation comment could not be saved.

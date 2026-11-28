@@ -9,7 +9,7 @@ import {
   setSelectionShortcut,
 } from "./shortcut-prefs";
 
-export function createSelectionShortcutSettings(doc: Document): HTMLElement {
+export function createSelectionShortcutRows(doc: Document): HTMLElement[] {
   const shortcutLabel = getString("marginalia-shortcut-binding");
   const promptLabel = getString("marginalia-shortcut-prompt");
   let capturing = false;
@@ -55,7 +55,7 @@ export function createSelectionShortcutSettings(doc: Document): HTMLElement {
   const prompt = h(doc, "textarea", {
     id: "sapientia-selection-prompt",
     class: "sap-prefs-input",
-    rows: 3,
+    rows: 2,
     input: () => setSelectionPrompt(prompt.value),
     blur: () => {
       prompt.value = getSelectionPrompt();
@@ -74,33 +74,20 @@ export function createSelectionShortcutSettings(doc: Document): HTMLElement {
   }
 
   render();
-  return h(
-    doc,
-    "div",
-    { class: "sap-prefs-editor" },
+  return [
     h(
       doc,
       "div",
-      { class: "sap-prefs-field" },
-      h(
-        doc,
-        "label",
-        { class: "sap-prefs-field-label", for: binding.id },
-        shortcutLabel,
-      ),
-      h(doc, "div", { class: "sap-prefs-select-field" }, binding, clear),
+      { class: "sap-prefs-option" },
+      h(doc, "label", { for: binding.id }, shortcutLabel),
+      h(doc, "div", { class: "sap-prefs-option-actions" }, binding, clear),
     ),
     h(
       doc,
       "div",
-      { class: "sap-prefs-field" },
-      h(
-        doc,
-        "label",
-        { class: "sap-prefs-field-label", for: prompt.id },
-        promptLabel,
-      ),
+      { class: "sap-prefs-option sap-prefs-option-multiline" },
+      h(doc, "label", { for: prompt.id }, promptLabel),
       prompt,
     ),
-  );
+  ];
 }

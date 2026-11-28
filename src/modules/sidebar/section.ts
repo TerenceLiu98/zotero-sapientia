@@ -157,7 +157,7 @@ export function mountChatSidebar(
     askPassage,
   );
   function askPassage(selection: SelectedText, source?: AnnotationSource) {
-    context.attach(selection);
+    context.attach(source ? { ...selection, comment: undefined } : selection);
     if (panel.hidden) setOpen(true);
     view?.setAnnotationSource(source);
   }

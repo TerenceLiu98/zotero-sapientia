@@ -20,7 +20,7 @@ The plugin registers its loopback Model Context Protocol (MCP) endpoint when the
 
 ## Marginalia and portable PDF comments
 
-Turn on **Marginalia** in **Settings → Sapientia** to show the Reader toolbar toggle. The margin displays native highlights and underlines. Open a marker to read or edit the comment when the page leaves little room. **Ask Agent** attaches the quoted text, page, and current comment. You can preview and save an answer or the conversation back to the original passage.
+Turn on **Marginalia** in **Settings → Sapientia** to show the Reader toolbar toggle. The margin displays native highlights and underlines. Open a marker to read or edit the comment when the page leaves little room. **Ask** attaches the quoted text and page and copies the comment into the chat composer. You can preview and save an answer or the conversation back to the original passage.
 
 Set **Selection Shortcut** and **Selection Prompt** in the same settings pane. The key is initially unassigned. The default prompt replaces `{language}` with Zotero's UI language. The shortcut sends the prompt and selected text to the configured Library Agent model in a fresh session. Choose **Add to Annotation** to review and save the result.
 

@@ -99,17 +99,29 @@ describe("saving Reader conversations to Zotero annotations", function () {
     mark.annotationPosition = JSON.stringify(position);
     await mark.saveTx();
     try {
-      askFrom(await open(paper), "renderSidebarAnnotationHeader", {
-        id: mark.key,
-      });
+      const reader = await open(paper);
+      const ask = () =>
+        askFrom(reader, "renderSidebarAnnotationHeader", { id: mark.key });
+      ask();
       assert.include(
         pane().querySelector(".sap-context-quote")?.textContent,
         passage,
       );
-      assert.include(
+      assert.notInclude(
         pane().querySelector(".sap-context-quote")?.textContent,
         "Earlier comment",
       );
+      const input =
+        pane().querySelector<HTMLTextAreaElement>(".sap-chat-input")!;
+      assert.match(input.value, /^Earlier comment\n第二行\n\n/);
+      input.value = "What does this mean?";
+      ask();
+      ask();
+      assert.equal(
+        input.value,
+        "Earlier comment\n第二行\n\nWhat does this mean?",
+      );
+      assert.equal(input.selectionStart, input.value.length);
       await submit("echo:**First answer**", "First answer");
       const sent = (await fixture.received()).find(
         ({ method }) => method === "session/prompt",
@@ -125,7 +137,6 @@ describe("saving Reader conversations to Zotero annotations", function () {
           title: "Existing underline",
           page: 1,
           pageLabel: "1",
-          comment: "Earlier comment\n第二行",
         },
       );
       click('[aria-label="Add answer to annotation"]');

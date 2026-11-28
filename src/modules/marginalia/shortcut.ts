@@ -1,15 +1,11 @@
 import { X } from "lucide";
 import { config } from "../../../package.json";
-import { AgentConnection } from "../../acp/connection";
-import { sessionChoicesFromConfig } from "../../acp/models";
-import { discoverAgentProfiles } from "../../agents/discovery";
-import { resolveLaunchSpec } from "../../agents/launch";
-import { secretValues } from "../../agents/secrets";
-import { getLibraryDefaultModel, loadProfiles } from "../../agents/store";
+import { getLibraryDefaultModel } from "../../agents/store";
 import { formatError, UserError } from "../../utils/errors";
 import { getString } from "../../utils/locale";
-import { logError, redactor } from "../../utils/log";
+import { logError } from "../../utils/log";
 import { h, iconButton } from "../ui/dom";
+import { runMarginaliaPrompt } from "./agent";
 import {
   getSelectionShortcut,
   resolveSelectionPrompt,
@@ -28,86 +24,20 @@ type SelectionViewState = {
   secondaryViewSelectionPopup?: SelectionPopup;
 };
 
-export async function runSelectionShortcut(
+function runSelectionShortcut(
   prompt: string,
   text: string,
   signal: AbortSignal,
 ): Promise<string> {
   const model = getLibraryDefaultModel();
   if (!model) throw new UserError("marginalia-shortcut-model-required");
-  const profile =
-    loadProfiles().find(({ id }) => id === model.profileId) ??
-    (await discoverAgentProfiles()).find(({ id }) => id === model.profileId);
-  if (!profile) throw new UserError("agent-not-configured");
-
-  const release = redactor.retainSecrets(secretValues(profile));
-  let connection: AgentConnection | undefined;
-  const stop = () => void connection?.close().catch(() => {});
-  signal.addEventListener("abort", stop, { once: true });
-  try {
-    const spec = await resolveLaunchSpec(profile);
-    connection = await AgentConnection.open(spec, signal);
-    const session = await connection.newSession(spec.cwd, []);
-    signal.throwIfAborted();
-    const { models } = sessionChoicesFromConfig(session.configOptions);
-    if (!models?.options.some(({ id }) => id === model.modelId)) {
-      throw new UserError("library-default-model-unavailable", {
-        model: model.modelId,
-      });
-    }
-    if (models.currentId !== model.modelId) {
-      const { configOptions } = await connection.setConfigOption(
-        session.sessionId,
-        models.configId,
-        model.modelId,
-      );
-      if (
-        sessionChoicesFromConfig(configOptions).models?.currentId !==
-        model.modelId
-      ) {
-        throw new UserError("library-default-model-unavailable", {
-          model: model.modelId,
-        });
-      }
-    }
-
-    signal.throwIfAborted();
-    let output = "";
-    connection.onEvent((event) => {
-      if (
-        event.type !== "update" ||
-        event.params.sessionId !== session.sessionId
-      )
-        return;
-      const update = event.params.update;
-      if (
-        update.sessionUpdate === "agent_message_chunk" &&
-        update.content.type === "text"
-      )
-        output += update.content.text;
-    });
-    const result = await connection.prompt(session.sessionId, [
-      { type: "text", text: prompt },
-      { type: "text", text },
-    ]);
-    signal.throwIfAborted();
-    if (
-      !output.trim() ||
-      result.stopReason === "cancelled" ||
-      result.stopReason === "refusal"
-    )
-      throw new UserError("marginalia-shortcut-no-result");
-    return output;
-  } finally {
-    signal.removeEventListener("abort", stop);
-    try {
-      await connection?.close();
-    } catch (error) {
-      logError("Could not close the PDF selection shortcut process", error);
-    } finally {
-      release();
-    }
-  }
+  return runMarginaliaPrompt(
+    model,
+    prompt,
+    text,
+    signal,
+    "library-default-model-unavailable",
+  );
 }
 
 interface ShortcutActions<Source> {

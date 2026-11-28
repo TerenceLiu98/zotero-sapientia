@@ -33,13 +33,19 @@ describe("Reader marginals", function () {
       pageIndex: 0,
       rects: [[40, 715, 138, 732]],
     };
-    const native = async (type: "highlight" | "underline", offset: number) => {
+    const native = async (
+      type: "highlight" | "underline",
+      offset: number,
+      comment?: string,
+    ) => {
       const item = new Zotero.Item("annotation");
       item.libraryID = pdf.libraryID;
       item.parentID = pdf.id;
       item.annotationType = type;
       item.annotationText = "margin-notes";
-      item.annotationComment = `Native ${type} comment ${offset}`;
+      if (comment !== undefined) item.annotationComment = comment;
+      if (type === "highlight" && offset === 0 && comment)
+        item.addTag("Background");
       item.annotationColor = "#ffd400";
       item.annotationPageLabel = "1";
       item.annotationSortIndex = `00000|${String(offset).padStart(6, "0")}|00000`;
@@ -50,9 +56,18 @@ describe("Reader marginals", function () {
       await item.saveTx();
       return item;
     };
-    const highlight = await native("highlight", 0);
-    const underline = await native("underline", 4);
-    await native("highlight", 8);
+    const withoutComment = await native("highlight", 0);
+    const highlight = await native(
+      "highlight",
+      0,
+      "Native highlight comment 0",
+    );
+    const underline = await native(
+      "underline",
+      4,
+      "Native underline comment 4",
+    );
+    await native("highlight", 8, "Native highlight comment 8");
     const host = mainWindow();
     await Zotero.Reader.open(pdf.id);
     const reader = Zotero.Reader.getByTabID(host.Zotero_Tabs.selectedID)!;
@@ -90,8 +105,23 @@ describe("Reader marginals", function () {
       const app = view._iframeWindow!.PDFViewerApplication;
       const viewer = app.pdfViewer!;
       await view.initializedPromise;
-      for (let step = 0; step < 8; step++) view.zoomOut();
+      view.zoomPageWidth();
       await waitFor("a wide viewport annotation card", card);
+      assert.notExists(
+        doc()?.querySelector(`[data-annotation-key="${withoutComment.key}"]`),
+      );
+      assert.isBelow(
+        viewer.container.getBoundingClientRect().width,
+        view._iframe.getBoundingClientRect().width - 160,
+        "page-width mode leaves room for annotations",
+      );
+      assert.equal(
+        view._iframeWindow!.getComputedStyle(viewer.container)?.scrollbarWidth,
+        "none",
+      );
+      await waitFor("a colored connector", () =>
+        doc()?.querySelector(".sap-marginalia-connectors path[d]"),
+      );
       const wide = projectPdfMark(view, position)!;
       assert.exists(wide, "the wide viewport projection");
       const start = card()!.getBoundingClientRect();
@@ -101,12 +131,38 @@ describe("Reader marginals", function () {
       assert.include(card()!.textContent, "Page 1");
       assert.include(card()!.textContent, "margin-notes");
       assert.include(card()!.textContent, "Native highlight comment 0");
+      assert.equal(
+        card()!.querySelector(".sap-marginalia-tags")?.textContent,
+        "Background",
+      );
+      const button = (label: string) =>
+        card()!.querySelector<HTMLButtonElement>(
+          `button[aria-label="${label}"]`,
+        )!;
+      button("Expand comment").click();
+      assert.equal(card()!.dataset.expanded, "true");
+      button("Close comment").click();
+      assert.equal(card()!.dataset.expanded, "false");
       assert.exists(
         doc()?.querySelector(
           `[data-annotation-key="${underline.key}"]:not([hidden])`,
         ),
         "the nearby underline's card or marker",
       );
+      const overlay = doc()!.querySelector(".sap-marginalia-layer")!;
+      const unrelated = doc()!.createElement("span");
+      doc()!.body!.append(unrelated);
+      unrelated.remove();
+      await Zotero.Promise.delay(100);
+      assert.isTrue(
+        doc()!.querySelector(".sap-marginalia-layer") === overlay,
+        "unrelated Reader updates leave the existing overlay mounted",
+      );
+      Zotero.Prefs.set(pref, false, true);
+      assert.notExists(doc()?.querySelector(".sap-marginalia-layer"));
+      Zotero.Prefs.set(pref, true, true);
+      await waitFor("the comment after enabling Marginalia again", card);
+      assert.lengthOf(doc()!.querySelectorAll(".sap-marginalia-layer"), 1);
 
       highlight.annotationComment = "Changed through Zotero";
       await highlight.saveTx();
@@ -114,19 +170,35 @@ describe("Reader marginals", function () {
         "the native edit appearing beside the page",
         () => comment()?.textContent === "Changed through Zotero",
       );
-      card()!
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="Edit annotation comment"]',
-        )!
-        .click();
+      button("Comment actions").click();
+      const editMenu = card()!.querySelector(".sap-marginalia-options")!;
+      assert.isFalse(editMenu.hasAttribute("hidden"));
+      assert.equal(editMenu.textContent, "EditAsk");
+      editMenu.querySelector<HTMLButtonElement>("button")!.click();
       const editor = card()!.querySelector<HTMLTextAreaElement>("textarea")!;
       assert.equal(editor.value, "Changed through Zotero");
+      button("AI actions").click();
+      const aiMenu = card()!.querySelector<HTMLElement>(
+        ".sap-marginalia-ai-menu",
+      )!;
+      assert.isFalse(aiMenu.hasAttribute("hidden"));
+      assert.deepEqual(
+        Array.from<HTMLButtonElement, string | undefined>(
+          aiMenu.querySelectorAll<HTMLButtonElement>("button"),
+          (action) => action.textContent?.trim(),
+        ),
+        ["Ask AI", "Make concise", "Polish", "Expand"],
+      );
+      button("AI actions").click();
+      button("Cancel").click();
+      assert.isTrue(
+        editor.closest(".sap-marginalia-editor")!.hasAttribute("hidden"),
+      );
+      assert.equal(highlight.annotationComment, "Changed through Zotero");
+      button("Comment actions").click();
+      editMenu.querySelector<HTMLButtonElement>("button")!.click();
       editor.value = "Saved from the margin\n第二行";
-      Array.from<HTMLButtonElement>(
-        card()!.querySelectorAll<HTMLButtonElement>("button"),
-      )
-        .find((button) => button.textContent === "Save")!
-        .click();
+      button("Save").click();
       await waitFor(
         "the new comment text after Save",
         () => comment()?.textContent === "Saved from the margin\n第二行",
@@ -144,7 +216,20 @@ describe("Reader marginals", function () {
         "Saved from the margin",
       );
 
+      const unresized = view._iframe.getBoundingClientRect().width;
+      view._iframe.style.setProperty("width", "480px", "important");
+      await waitFor(
+        "the PDF viewport narrowing",
+        () => view._iframe.getBoundingClientRect().width < unresized,
+      );
+      await waitFor(
+        "the PDF viewport reclaiming its margins",
+        () => viewer.container.clientWidth > 440,
+      );
       view.zoomPageWidth();
+      await Zotero.Promise.delay(100);
+      viewer.container.scrollTop = 0;
+      viewer.update();
       const highlightMarker = () =>
         markers().find(
           ({ dataset }) => dataset.annotationKey === highlight.key,
@@ -177,12 +262,6 @@ describe("Reader marginals", function () {
         () => !!card() || markers().length > 0,
       );
 
-      const unresized = view._iframe.getBoundingClientRect().width;
-      view._iframe.style.setProperty("width", "60%", "important");
-      await waitFor(
-        "the PDF viewport narrowing",
-        () => view._iframe.getBoundingClientRect().width < unresized,
-      );
       await waitFor("the overlay narrowing with the viewer", () => {
         const overlay = doc()?.querySelector(".sap-marginalia-layer");
         return overlay && overlay.getBoundingClientRect().width < unresized;

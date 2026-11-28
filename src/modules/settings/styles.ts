@@ -19,7 +19,7 @@ export const SETTINGS_STYLES = `
 }
 .sap-prefs-heading {
   display: block;
-  margin-bottom: 6px;
+  margin: 0 0 6px;
   font-size: 13px;
   font-weight: 600;
 }
@@ -32,6 +32,45 @@ export const SETTINGS_STYLES = `
 }
 .sap-prefs-entry + .sap-prefs-entry,
 .sap-prefs-list > .sap-prefs-library-model:not(:first-child) { border-top: 1px solid var(--color-border); }
+.sap-prefs-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 7px 10px;
+}
+.sap-prefs-option + .sap-prefs-option { border-top: 1px solid var(--color-border); }
+.sap-prefs-option label { overflow-wrap: anywhere; }
+.sap-prefs-option input[type="checkbox"] {
+  justify-self: end;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+.sap-prefs-option-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.sap-prefs-option-actions button:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sap-prefs-option-actions button:disabled { opacity: .45; }
+.sap-prefs-option-multiline textarea {
+  height: auto;
+  min-height: calc(var(--sap-control-size) * 2);
+  padding: 6px 8px;
+  resize: vertical;
+}
+@container (max-width: 340px) {
+  .sap-prefs-option-multiline {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}
 .sap-prefs-row {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) auto var(--sap-control-size);

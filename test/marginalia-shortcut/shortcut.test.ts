@@ -11,7 +11,7 @@ import {
   setSelectionPrompt,
   setSelectionShortcut,
 } from "../../src/modules/marginalia/shortcut-prefs";
-import { createSelectionShortcutSettings } from "../../src/modules/marginalia/shortcut-settings";
+import { createSelectionShortcutRows } from "../../src/modules/marginalia/shortcut-settings";
 import {
   mainWindow,
   makeAgent,
@@ -34,7 +34,8 @@ describe("the PDF selection shortcut", function () {
 
   it("records and clears an unassigned shortcut and accepts a replacement prompt", () => {
     const window = mainWindow();
-    const settings = createSelectionShortcutSettings(window.document);
+    const settings = window.document.createDocumentFragment();
+    settings.append(...createSelectionShortcutRows(window.document));
     const trigger = settings.querySelector<HTMLButtonElement>(
       "#sapientia-selection-shortcut",
     )!;
