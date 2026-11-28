@@ -250,15 +250,6 @@ export const CHAT_STYLES =
   background: transparent;
   color: var(--fill-secondary);
 }
-.sap-write-history {
-  flex: none;
-  min-width: 0;
-  margin: 6px 10px;
-  padding: 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  overflow-wrap: anywhere;
-}
 .sap-write-review {
   flex: none;
   align-self: center;
@@ -402,9 +393,6 @@ export const CHAT_STYLES =
 @media (prefers-reduced-motion: reduce) {
   .sap-write-review[data-phase="running"] .sap-write-symbol svg { animation: none; }
 }
-.sap-write-history-row { display: flex; justify-content: space-between; align-items: start; gap: 6px; }
-.sap-write-history-row > div { min-width: 0; }
-.sap-write-history-row > button { flex: none; }
 ` +
   COMPOSER_STYLES +
   ANSWER_STYLES;

@@ -4,6 +4,7 @@ import { ChatController } from "../../src/chat/controller";
 import {
   createLibraryThreadId,
   libraryRecap,
+  loadLibraryHistory,
   loadLibrarySession,
   saveLibrarySession,
   setActiveLibraryThread,
@@ -127,7 +128,7 @@ if (restartPhase === "after") {
       checkpoint.firstKey,
     );
     if (!item) throw new Error("The paper did not survive restart.");
-    assert.equal(item.getField("title"), "Library acceptance preprint A");
+    assert.equal(item.getField("title"), "Verified library acceptance article");
     assert.isFalse(item.hasTag("unapproved after restart"));
     const log = async () =>
       (await IOUtils.readUTF8(checkpoint.log))
@@ -160,7 +161,7 @@ if (restartPhase === "after") {
       assert.notExists(win.document.querySelector(pendingWrite));
       await send(
         win,
-        calls(["search_library", { title: "Library acceptance preprint" }]),
+        calls(["search_library", { title: "Library acceptance" }]),
       );
       await waitFor("a tool result after a real restart", async () =>
         (await log())
@@ -201,7 +202,116 @@ if (restartPhase !== "after")
   describe("Library Agent window", function () {
     this.timeout(60000);
 
-    it("finds papers, approves collection and evidence-backed writes, undoes a change, and keeps its own session", async () => {
+    it("shows Thinking and Writing in chat and keeps tool details in the run inspector", async () => {
+      await reset();
+      const fixture = await makeAgent("library progress");
+      use(fixture.profile());
+      const { activeThreadId } = await loadLibraryHistory();
+      await setActiveLibraryThread(createLibraryThreadId());
+      const win = await openLibraryWindow();
+      const doc = win.document;
+      const shell = doc.querySelector<HTMLElement>(".sap-library-shell")!;
+      const inspector = doc.getElementById("sap-library-inspector")!;
+      const button = (selector: string) =>
+        doc.querySelector<HTMLButtonElement>(selector)!;
+      const transcript = doc.querySelector(".sap-chat-transcript")!;
+      const phase = (name: "thinking" | "writing", icon: string) =>
+        transcript.querySelector(
+          `.sap-library-reply-status[data-phase="${name}"]:not([hidden]) ${icon}`,
+        );
+      try {
+        await send(win, "library-run-progress");
+        await waitFor("the Thinking animation during the search", () =>
+          phase("thinking", ".sap-thinking-orb"),
+        );
+        await waitFor("the Writing animation during the reply", () =>
+          phase("writing", ".sap-library-writing-icon"),
+        );
+        await waitFor("Thinking to resume for the next tool call", () =>
+          phase("thinking", ".sap-thinking-orb"),
+        );
+        await waitFor("the completed result and View run button", () =>
+          transcript.querySelector(".sap-answer-view-run:not([hidden])"),
+        );
+        assert.notExists(
+          transcript.querySelector(".sap-library-reply-status:not([hidden])"),
+        );
+        assert.include(
+          transcript.textContent,
+          "I found matching papers in your library.",
+        );
+        assert.include(
+          transcript.textContent,
+          "I reviewed the matching papers and saved the results summary.",
+        );
+        assert.notInclude(transcript.textContent, "search_library");
+        assert.notInclude(transcript.textContent, "read_paper_metadata");
+        if (inspector.hasAttribute("inert"))
+          button(".sap-library-progress-toggle").click();
+        assert.isFalse(inspector.hasAttribute("inert"));
+        assert.include(inspector.textContent, "Results summary");
+        const surface = doc.querySelector(".sap-library-surface")!;
+        const slot = doc.querySelector(".sap-library-inspector-slot")!;
+        if (!win.matchMedia("(max-width: 900px)")?.matches) {
+          await waitFor(
+            "the independent progress column to finish expanding",
+            () =>
+              slot.getBoundingClientRect().width >
+              inspector.getBoundingClientRect().width,
+          );
+          assert.isAbove(
+            inspector.getBoundingClientRect().left,
+            surface.getBoundingClientRect().right,
+          );
+          assert.isAbove(
+            Number.parseFloat(
+              win.getComputedStyle(surface)!.borderTopRightRadius,
+            ),
+            0,
+          );
+          assert.isAbove(
+            Number.parseFloat(
+              win.getComputedStyle(inspector)!.borderTopLeftRadius,
+            ),
+            0,
+          );
+        }
+        button(".sap-library-close-progress").click();
+        assert.isTrue(inspector.hasAttribute("inert"));
+        assert.equal(doc.activeElement, button(".sap-library-progress-toggle"));
+        if (!win.matchMedia("(max-width: 900px)")?.matches)
+          await waitFor(
+            "the progress column to contract and release its width",
+            () => slot.getBoundingClientRect().width <= 0.5,
+          );
+        const trigger = button(".sap-answer-view-run");
+        trigger.click();
+        assert.equal(shell.dataset.presentation, "run");
+        const run = doc.querySelector(".sap-library-run-surface")!;
+        assert.isFalse(run.hasAttribute("hidden"));
+        assert.include(run.textContent, "Prepare the results summary");
+        assert.include(run.textContent, "Review bibliographic metadata");
+        assert.include(run.textContent, "search_library");
+        assert.include(run.textContent, "read_paper_metadata");
+        assert.notInclude(run.textContent, "fixture-tool-secret");
+        assert.include(run.textContent, "Completed");
+        button(".sap-library-run-toggle").click();
+        assert.isFalse(inspector.hasAttribute("inert"));
+        button(".sap-library-run-toolbar .sap-library-run-link").click();
+        assert.equal(shell.dataset.presentation, "chat");
+        assert.equal(doc.activeElement, trigger);
+      } finally {
+        win.close();
+        await waitFor(
+          "the Library Agent window to close",
+          () => !libraryWindow(),
+        );
+        await setActiveLibraryThread(activeThreadId);
+        await reset();
+      }
+    });
+
+    it("finds papers, approves collection and evidence-backed writes, and keeps its own session", async () => {
       await reset();
       await IOUtils.remove(sessionFile(), { ignoreAbsent: true });
       const fixture = await makeAgent("library window");
@@ -342,29 +452,6 @@ if (restartPhase !== "after")
         assert.equal(
           first.getField("title"),
           "Verified library acceptance article",
-        );
-
-        stage = "undo the metadata correction";
-        win.document
-          .querySelector<HTMLButtonElement>(
-            'button[aria-label="Write history"]',
-          )!
-          .click();
-        const undo = () =>
-          Array.from<HTMLElement>(
-            win.document.querySelectorAll<HTMLElement>(
-              ".sap-write-history-row",
-            ),
-          )
-            .find((entry) =>
-              entry.textContent?.includes("Update bibliographic metadata"),
-            )
-            ?.querySelector<HTMLButtonElement>("button");
-        await waitFor("the metadata entry in write history", undo);
-        undo()!.click();
-        await waitFor(
-          "the original title after undo",
-          () => first.getField("title") === "Library acceptance preprint A",
         );
 
         stage = "switch the paper sidebar's agent";
@@ -559,14 +646,35 @@ if (restartPhase !== "after")
           document
             .querySelector(".sap-library-surface")!
             .getBoundingClientRect().width;
+        const progressSlot = document.querySelector(
+          ".sap-library-inspector-slot",
+        )!;
+        if (!win.matchMedia("(max-width: 900px)")?.matches) {
+          await waitFor(
+            "the new chat's progress panel to finish closing",
+            () => progressSlot.getBoundingClientRect().width < 0.5,
+          );
+        }
         const expandedWidth = surfaceWidth();
+        const sidebar = history.closest(".sap-library-nav")!;
+        const toggleLeft = toggle.getBoundingClientRect().left;
         toggle.click();
         assert.equal(toggle.getAttribute("aria-expanded"), "false");
-        assert.equal(history.getBoundingClientRect().height, 0);
+        assert.isTrue(history.hasAttribute("inert"));
+        await waitFor(
+          "the sidebar to contract into its icon rail",
+          () => sidebar.getBoundingClientRect().width <= 36.5,
+        );
+        assert.closeTo(toggle.getBoundingClientRect().left, toggleLeft, 1);
         assert.isAbove(surfaceWidth(), expandedWidth);
         assert.include(draft.value, "Find papers");
         toggle.click();
         assert.equal(toggle.getAttribute("aria-expanded"), "true");
+        assert.isFalse(history.hasAttribute("inert"));
+        await waitFor(
+          "the chat to return to its expanded width",
+          () => Math.abs(surfaceWidth() - expandedWidth) < 1,
+        );
         assert.closeTo(surfaceWidth(), expandedWidth, 1);
         assert.include(draft.value, "Find papers");
         await send(win, "echo:The second conversation");
@@ -607,6 +715,111 @@ if (restartPhase !== "after")
         );
       } finally {
         libraryWindow()?.close();
+        await reset();
+      }
+    });
+
+    it("deletes an inactive or current conversation from history and disk", async () => {
+      await reset();
+      const { activeThreadId } = await loadLibraryHistory();
+      const fixture = await makeAgent("library thread deletion");
+      const profile = fixture.profile();
+      use(profile);
+      const ids = [
+        createLibraryThreadId(),
+        createLibraryThreadId(),
+        createLibraryThreadId(),
+      ];
+      for (const [index, id] of ids.entries()) {
+        await saveLibrarySession(
+          {
+            profileId: profile.id,
+            sessionId: null,
+            messages: [
+              { id: "1", role: "user", text: `Deletion fixture ${index}` },
+              {
+                id: "2",
+                role: "assistant",
+                blocks: [],
+                startedAt: Date.now() + index,
+                stopReason: "end_turn",
+              },
+            ],
+          },
+          id,
+        );
+      }
+      const [inactive, remaining, active] = ids;
+      await setActiveLibraryThread(active);
+      const win = await openLibraryWindow();
+      const doc = win.document;
+      const row = (id: string) =>
+        doc.querySelector<HTMLButtonElement>(`[data-thread-id="${id}"]`);
+      const selected = () =>
+        doc.querySelector<HTMLButtonElement>(
+          '[data-thread-id][aria-current="true"]',
+        )?.dataset.threadId;
+      const dialog = doc.querySelector<HTMLDialogElement>(
+        ".sap-library-delete-dialog",
+      )!;
+      async function askToDelete(id: string) {
+        await waitFor("the conversation row", () => row(id));
+        row(id)!
+          .parentElement!.querySelector<HTMLButtonElement>(
+            ".sap-library-delete-thread",
+          )!
+          .click();
+        assert.isTrue(dialog.open);
+      }
+      function confirm() {
+        dialog
+          .querySelector<HTMLButtonElement>(".sap-library-delete-confirm")!
+          .click();
+      }
+      try {
+        await askToDelete(inactive);
+        dialog.querySelector<HTMLButtonElement>("button")!.click();
+        assert.isFalse(dialog.open);
+        assert.exists(await loadLibrarySession(inactive));
+        await askToDelete(inactive);
+        confirm();
+        await waitFor(
+          "the inactive conversation to leave the list",
+          () => !row(inactive),
+        );
+        assert.equal(selected(), active);
+        assert.isNull(await loadLibrarySession(inactive));
+        await askToDelete(active);
+        confirm();
+        await waitFor(
+          "the next conversation to open",
+          () => !row(active) && selected() === remaining,
+        );
+        assert.isNull(await loadLibrarySession(active));
+        assert.equal((await loadLibraryHistory()).activeThreadId, remaining);
+        win.close();
+        await waitFor(
+          "the Library Agent window to close",
+          () => !libraryWindow(),
+        );
+        const reopened = await openLibraryWindow();
+        await waitFor("retained history to reopen", () =>
+          reopened.document.querySelector(
+            `[data-thread-id="${remaining}"][aria-current="true"]`,
+          ),
+        );
+        assert.notExists(
+          reopened.document.querySelector(
+            `[data-thread-id="${inactive}"], [data-thread-id="${active}"]`,
+          ),
+        );
+      } finally {
+        libraryWindow()?.close();
+        await waitFor(
+          "the Library Agent window to close",
+          () => !libraryWindow(),
+        );
+        await setActiveLibraryThread(activeThreadId);
         await reset();
       }
     });

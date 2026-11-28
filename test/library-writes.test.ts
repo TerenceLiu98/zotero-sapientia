@@ -26,7 +26,7 @@ function prepare(...operations: unknown[]) {
 }
 
 describe("Library Agent writes", function () {
-  it("writes and undoes collection creation and explicit item membership", async () => {
+  it("creates collections and applies explicit item membership changes", async () => {
     const item = await paper("Library membership target");
     const writes = new WriteApprovals({
       writeAllowed: () => true,
@@ -46,7 +46,6 @@ describe("Library Agent writes", function () {
     const [created, duplicate] = await execute(create, create);
     assert.equal(created.status, "applied");
     assert.equal(duplicate.status, "unchanged");
-    assert.isUndefined(duplicate.historyID);
     assert.deepEqual(duplicate.target, created.target);
     assert.isTrue("collectionKey" in created.target);
     const collectionKey =
@@ -67,14 +66,6 @@ describe("Library Agent writes", function () {
     assert.equal(added.status, "applied");
     assert.equal(unchanged.status, "unchanged");
     assert.isTrue(item.inCollection(collection.id));
-    let conflict: unknown;
-    try {
-      await writes.undo(created.historyID!);
-    } catch (error) {
-      conflict = error;
-    }
-    assert.instanceOf(conflict, Error);
-    assert.include((conflict as Error).message, "gained contents");
 
     const [removed] = await execute({
       ...add,
@@ -82,17 +73,6 @@ describe("Library Agent writes", function () {
     });
     assert.equal(removed.status, "applied");
     assert.isFalse(item.inCollection(collection.id));
-    await writes.undo(removed.historyID!);
-    assert.isTrue(item.inCollection(collection.id));
-    await writes.undo(added.historyID!);
-    assert.isFalse(item.inCollection(collection.id));
-    await writes.undo(created.historyID!);
-    assert.isFalse(
-      await Zotero.Collections.getByLibraryAndKeyAsync(
-        item.libraryID,
-        collectionKey,
-      ),
-    );
     assert.isFalse(item.deleted);
   });
 
@@ -133,7 +113,6 @@ describe("Library Agent writes", function () {
 
     const writes = new WriteApprovals({ writeAllowed: () => true });
     const card = createWriteReview(mainWindow().document, writes);
-    const initialHistory = (await writes.history()).length;
     const request = async (...operations: unknown[]) =>
       writes.request(
         await prepare(...operations),
@@ -152,7 +131,6 @@ describe("Library Agent writes", function () {
       assert.equal(report?.outcomes[0].status, "unresolved");
       assert.equal(report?.outcomes[0].reason, unresolved.change.reason);
       assert.include(card.element.textContent, unresolved.change.reason);
-      assert.equal((await writes.history()).length, initialHistory);
 
       const proposal = await prepare(correction, unresolved);
       const denied = writes.request(proposal, new AbortController().signal);
@@ -176,7 +154,6 @@ describe("Library Agent writes", function () {
         ["cancelled", "unresolved"],
       );
       assert.equal(item.getField("title"), "Original title");
-      assert.equal((await writes.history()).length, initialHistory);
 
       const approved = writes.request(proposal, new AbortController().signal);
       await writes.confirm(id);
@@ -186,16 +163,13 @@ describe("Library Agent writes", function () {
         ["applied", "unresolved"],
       );
       assert.equal(item.getField("title"), "Corrected title");
-      assert.equal((await writes.history()).length, initialHistory + 1);
-      await writes.undo(result!.outcomes[0].historyID!);
-      assert.equal(item.getField("title"), "Original title");
     } finally {
       unsubscribe();
       card.destroy();
     }
   });
 
-  it("continues a partly conflicting batch and uses the same history for direct writes", async () => {
+  it("continues a partly conflicting batch and applies direct writes", async () => {
     const item = await paper("Existing metadata");
     let direct = false;
     const writes = new WriteApprovals({
@@ -240,19 +214,16 @@ describe("Library Agent writes", function () {
         item.getTags().map(({ tag }) => tag),
         "Library batch tag",
       );
-      await writes.undo(approved!.outcomes[1].historyID!);
-      assert.isEmpty(item.getTags());
-
       direct = true;
       phases.length = 0;
+      const directTag = "Library direct tag";
       const immediate = await writes.request(
-        await prepare(addTag),
+        await prepare({ ...addTag, change: { tags: [directTag] } }),
         new AbortController().signal,
       );
       assert.notInclude(phases, "pending");
       assert.equal(immediate?.outcomes[0].status, "applied");
-      await writes.undo(immediate!.outcomes[0].historyID!);
-      assert.isEmpty(item.getTags());
+      assert.isTrue(item.hasTag(directTag));
     } finally {
       unsubscribe();
     }

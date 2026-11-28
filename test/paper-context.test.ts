@@ -718,7 +718,6 @@ describe("paper context in the Zotero reader", function () {
 
       stage = "approve metadata changes from an open PDF";
       const parent = b.parentItem!;
-      const originalCreators = parent.getCreatorsJSON();
       const revisedCreators = [
         { creatorType: "author", firstName: "Grace", lastName: "Hopper" },
         { creatorType: "author", name: "Research Group" },
@@ -785,15 +784,7 @@ describe("paper context in the Zotero reader", function () {
       assert.equal(a.parentItem!.getField("title"), aTitle);
       assert.equal(b.parentID, parent.id);
 
-      stage = "undo bibliographic metadata";
-      await chat.writes.undo(updated.outcomes[0].historyID);
-      assert.equal(parent.getField("title"), "Paper B");
-      assert.equal(parent.getField("DOI"), "10.1000/beta");
-      assert.equal(parent.getField("year"), "2024");
-      assert.equal(parent.getField("publicationTitle"), "");
-      assert.deepEqual(parent.getCreatorsJSON(), originalCreators);
-
-      stage = "convert preprint metadata with approval and undo";
+      stage = "convert preprint metadata with approval";
       parent.setType(Zotero.ItemTypes.getID("preprint") as number);
       parent.setField("repository", "Fixture preprint server");
       parent.setField("archiveID", "Fixture preprint ID");
@@ -854,13 +845,6 @@ describe("paper context in the Zotero reader", function () {
         publicationTitle: "Fixture Journal",
         volume: "8",
       });
-      assert.equal(b.parentID, parent.id);
-      await chat.writes.undo(conversion.outcomes[0].historyID);
-      assert.equal(Zotero.ItemTypes.getName(parent.itemTypeID), "preprint");
-      assert.equal(parent.getField("repository"), "Fixture preprint server");
-      assert.equal(parent.getField("archiveID"), "Fixture preprint ID");
-      assert.equal(parent.getField("publicationTitle"), "");
-      assert.deepEqual(parent.getCreatorsJSON(), originalCreators);
       assert.equal(b.parentID, parent.id);
     } catch (error) {
       const stats = reader()?._internalReader?._state?.primaryViewStats;

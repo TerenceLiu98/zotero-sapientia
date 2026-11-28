@@ -162,13 +162,6 @@ describe("writing through an installed Codex ACP adapter", function () {
       assert.include(note.getNote(), "Replication");
       assert.equal(note.parentID, a.id);
       assert.equal(unrelated.getNote(), unrelatedBefore);
-      const revision = (await chat.writes.history()).find(
-        ({ target, operation }) =>
-          target.itemID === a.id && operation === "edit_note",
-      );
-      assert.exists(revision);
-      await chat.writes.undo(revision!.id);
-      assert.equal(note.getNote(), before);
 
       await win.ZoteroPane.selectItems([a.id, b.id]);
       await until(

@@ -3,6 +3,7 @@ import { katex } from "@mdit/plugin-katex";
 import { ParseError } from "katex";
 import MarkdownIt from "markdown-it";
 import {
+  Activity,
   ArrowUpRight,
   Check,
   Copy,
@@ -74,6 +75,7 @@ interface AnswerOptions {
   id: string;
   onStop?(): void;
   onRegenerate?(): void;
+  onViewRun?(trigger: HTMLButtonElement): void;
   onAppendToAnnotation?(plainText: string, anchor: HTMLElement): void;
 }
 
@@ -158,6 +160,12 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
   const stop = options.onStop
     ? action(getString("action-stop"), Square, options.onStop, true)
     : null;
+  const viewRun: HTMLButtonElement | null = options.onViewRun
+    ? action(getString("library-run-view"), Activity, () =>
+        options.onViewRun?.(viewRun!),
+      )
+    : null;
+  viewRun?.classList.add("sap-answer-view-run");
   const actions = h(
     doc,
     "div",
@@ -166,6 +174,7 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
     regenerate,
     append,
     stop,
+    viewRun,
     clipboardStatus,
   );
   const element = h(
@@ -216,17 +225,19 @@ export function createAnswer(doc: Document, options: AnswerOptions) {
     question.hidden = !prompt;
     if (question.textContent !== (prompt ?? ""))
       question.textContent = prompt ?? "";
-    element.hidden = !text.trim();
+    const hasText = Boolean(text.trim());
+    element.hidden = !hasText && (!viewRun || streaming);
     element.classList.toggle("sap-answer-streaming", streaming);
     element.setAttribute("aria-busy", String(streaming));
-    writing.hidden = !streaming;
-    copy.hidden = streaming;
-    if (regenerate) regenerate.hidden = streaming || !canRegenerate;
+    writing.hidden = Boolean(viewRun) || !streaming;
+    copy.hidden = streaming || !hasText;
+    if (regenerate) regenerate.hidden = streaming || !canRegenerate || !hasText;
     if (append) append.hidden = streaming || !canAppend;
     if (stop) {
       stop.hidden = !streaming;
       stop.disabled = Boolean(stopping);
     }
+    if (viewRun) viewRun.hidden = streaming;
     actions.hidden = streaming && !stop;
     if (
       currentText === text &&

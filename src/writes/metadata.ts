@@ -141,7 +141,7 @@ export function prepareMetadata(
       creators = { before: originalCreators, after };
   }
   // Preserve all fields on a conversion, including empty values, so an
-  // intervening edit cannot be overwritten or lost on approval or undo.
+  // intervening edit cannot be overwritten or lost on approval.
   const names = changesType
     ? new Set([
         ...metadataFieldNames(itemTypeID),
@@ -169,38 +169,24 @@ export function prepareMetadata(
   };
 }
 
-export function metadataMatches(
-  item: Zotero.Item,
-  change: MetadataChange,
-  side: "before" | "after",
-) {
+export function metadataMatches(item: Zotero.Item, change: MetadataChange) {
   return (
-    item.itemTypeID ===
-      (side === "after"
-        ? (change.newItemTypeID ?? change.itemTypeID)
-        : change.itemTypeID) &&
+    item.itemTypeID === change.itemTypeID &&
     change.fields.every(
-      ({ field, [side]: value }) => item.getField(field, true) === value,
+      ({ field, before }) => item.getField(field, true) === before,
     ) &&
     (!change.creators ||
-      sameCreators(item.getCreatorsJSON(), change.creators[side]))
+      sameCreators(item.getCreatorsJSON(), change.creators.before))
   );
 }
 
-export function setMetadata(
-  item: Zotero.Item,
-  change: MetadataChange,
-  side: "before" | "after",
-) {
+export function setMetadata(item: Zotero.Item, change: MetadataChange) {
   if (change.newItemTypeID !== undefined)
-    convertType(
-      item,
-      side === "before" ? change.itemTypeID : change.newItemTypeID,
-    );
+    convertType(item, change.newItemTypeID);
   const validFields = new Set(metadataFieldNames(item.itemTypeID));
-  for (const { field, [side]: value } of change.fields) {
-    if (validFields.has(field)) item.setField(field, value);
+  for (const { field, after } of change.fields) {
+    if (validFields.has(field)) item.setField(field, after);
   }
   if (change.creators)
-    item.setCreators(change.creators[side], { strict: true });
+    item.setCreators(change.creators.after, { strict: true });
 }

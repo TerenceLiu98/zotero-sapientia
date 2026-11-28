@@ -29,7 +29,7 @@ async function paper(title: string) {
 describe("write approval in the Zotero sidebar", function () {
   this.timeout(60000);
 
-  it("previews, confirms, cancels and undoes the exact reviewed changes", async () => {
+  it("previews, confirms and cancels the exact reviewed changes", async () => {
     await reset();
     const agent = await makeAgent("write approval");
     use(agent.profile(["--capabilities", '{"mcpCapabilities":{"http":true}}']));
@@ -41,7 +41,6 @@ describe("write approval in the Zotero sidebar", function () {
     note.parentID = a.id;
     note.setNote("<p>Original fixture note</p>");
     await note.saveTx();
-    const original = note.getNote();
     a.addTag("Imported tag", 1);
     await a.saveTx();
 
@@ -120,29 +119,6 @@ describe("write approval in the Zotero sidebar", function () {
       return JSON.parse(result.content[0].text);
     };
     const pending = () => until(() => !review().hidden && action("Approve"));
-    const history = () => chat.writes.history();
-    const historyCount = async () => (await history()).length;
-    const undo = async (id: string) => {
-      const entries = await history();
-      const index = entries.findIndex((entry) => entry.id === id);
-      assert.isAtLeast(index, 0);
-      const row = pane.querySelectorAll(".sap-write-history-row")[
-        index
-      ] as HTMLElement;
-      row
-        .querySelector<HTMLButtonElement>('button[aria-label="Undo"]')!
-        .click();
-      await until(
-        async () => (await history()).find((entry) => entry.id === id)?.undone,
-      );
-      await until(
-        () => row.textContent?.includes("Undone") || !row.isConnected,
-      );
-    };
-    const undoAll = () =>
-      pane.querySelector<HTMLButtonElement>(
-        'button[aria-label="Write history"]',
-      )!;
     const permissionTrigger = pane.querySelector<HTMLButtonElement>(
       ".sap-permission-trigger",
     )!;
@@ -152,7 +128,6 @@ describe("write approval in the Zotero sidebar", function () {
     const saveB = b.save;
     try {
       assert.isTrue(await chat.connect());
-      const initialHistory = await historyCount();
       resize(300);
       permissionTrigger.click();
       assert.isTrue(permissions.matches(":popover-open"));
@@ -254,7 +229,6 @@ describe("write approval in the Zotero sidebar", function () {
       resolvedDetails.click();
       assert.equal(resolvedDetails.getAttribute("aria-expanded"), "true");
       assert.deepEqual(a.getNotes(), [note.id]);
-      assert.equal(await historyCount(), initialHistory);
 
       const edited = "<p>Revised in the fixture</p>";
       start(
@@ -292,27 +266,15 @@ describe("write approval in the Zotero sidebar", function () {
       );
       assert.isEmpty(b.getNotes());
 
-      const historyButton = undoAll();
-      historyButton.click();
-      await until(
-        () =>
-          pane.querySelectorAll(".sap-write-history-row").length ===
-          initialHistory + 2,
-      );
-      await undo(editRecord.historyID);
-      await undo(tagRecord.historyID);
-      assert.equal(note.getNote(), original);
-      assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
-      historyButton.click();
-
       await select(a);
       assert.isFalse(tagDeletionAllowed());
       const removeTag = proposal("delete_tags", { tags: ["Imported tag"] });
+      const tagsBeforeDeletion = a.getTags();
       start(removeTag);
       const [denied] = await results();
       assert.isTrue(denied.isError);
       assert.include(denied.content[0].text, "disabled");
-      assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
+      assert.deepEqual(a.getTags(), tagsBeforeDeletion);
 
       permissionTrigger.click();
       const checkbox = permissions.querySelector<HTMLButtonElement>(
@@ -327,22 +289,13 @@ describe("write approval in the Zotero sidebar", function () {
       await pending();
       click("Deny");
       assert.equal(value((await results())[0]).status, "cancelled");
-      assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
+      assert.deepEqual(a.getTags(), tagsBeforeDeletion);
       start(removeTag);
       await pending();
       click("Approve");
       const removed = value((await results())[0]).outcomes[0];
       assert.equal(removed.status, "applied");
-      assert.isEmpty(a.getTags());
-      historyButton.click();
-      await until(
-        () =>
-          pane.querySelectorAll(".sap-write-history-row").length ===
-          initialHistory + 3,
-      );
-      await undo(removed.historyID);
-      assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
-      historyButton.click();
+      assert.deepEqual(a.getTags(), [{ tag: "Reviewed tag" }]);
 
       start(
         batch(
@@ -383,14 +336,6 @@ describe("write approval in the Zotero sidebar", function () {
         assert.include(review().textContent, "Not processed");
         assert.deepInclude(a.getTags(), { tag: "First batch tag" });
         assert.isEmpty(b.getTags());
-        historyButton.click();
-        await until(
-          () =>
-            pane.querySelectorAll(".sap-write-history-row").length ===
-            initialHistory + 4,
-        );
-        await undo(stopped.outcomes[0].historyID);
-        historyButton.click();
       } finally {
         unsubscribe();
       }
@@ -417,18 +362,8 @@ describe("write approval in the Zotero sidebar", function () {
         ["applied", "failed"],
       );
       assert.include(review().textContent, "Fixture failed to save paper B");
-      assert.notProperty(result.outcomes[1], "historyID");
       assert.isEmpty(b.getTags());
       assert.deepInclude(a.getTags(), { tag: "Committed despite failure" });
-      historyButton.click();
-      await until(
-        () =>
-          pane.querySelectorAll(".sap-write-history-row").length ===
-          initialHistory + 5,
-      );
-      await undo(result.outcomes[0].historyID);
-      assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
-      historyButton.click();
 
       b.save = saveB;
       start(
@@ -460,15 +395,6 @@ describe("write approval in the Zotero sidebar", function () {
         child.getNote(),
         '<a href="https://example.com/">Source</a>',
       );
-      historyButton.click();
-      await until(
-        () =>
-          pane.querySelectorAll(".sap-write-history-row").length ===
-          initialHistory + 6,
-      );
-      await undo(created.historyID);
-      assert.deepEqual(a.getNotes(), [note.id]);
-      historyButton.click();
 
       const outsider = await paper("Unselected tagging target");
       outsider.addTag("Private outsider tag");
@@ -517,7 +443,7 @@ describe("write approval in the Zotero sidebar", function () {
       const addSelected = batch(
         proposal(
           "add_tags",
-          { tags: ["Imported tag", "Distinct A", "Distinct A"] },
+          { tags: ["Reviewed tag", "Distinct A", "Distinct A"] },
           { itemID: a.id },
         ),
         proposal(
@@ -543,12 +469,13 @@ describe("write approval in the Zotero sidebar", function () {
           [["Distinct A"], ["Imported tag", "Distinct B"]],
         );
       };
+      const tagsBeforeBatch = a.getTags();
       start(addSelected);
       await pending();
       assertTagPreview();
       click("Deny");
       assert.equal(value((await results())[0]).status, "cancelled");
-      assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
+      assert.deepEqual(a.getTags(), tagsBeforeBatch);
       assert.deepEqual(b.getTags(), [{ tag: "Other tag" }]);
 
       start(addSelected);
@@ -562,7 +489,7 @@ describe("write approval in the Zotero sidebar", function () {
         ["applied", "applied"],
       );
       assert.sameDeepMembers(a.getTags(), [
-        { tag: "Imported tag", type: 1 },
+        ...tagsBeforeBatch,
         { tag: "Distinct A" },
       ]);
       assert.sameDeepMembers(b.getTags(), [
@@ -571,14 +498,12 @@ describe("write approval in the Zotero sidebar", function () {
         { tag: "Distinct B" },
       ]);
       assert.deepEqual(outsider.getTags(), [{ tag: "Private outsider tag" }]);
-      for (const outcome of applied) await chat.writes.undo(outcome.historyID);
-      assert.deepEqual(a.getTags(), [{ tag: "Imported tag", type: 1 }]);
-      assert.deepEqual(b.getTags(), [{ tag: "Other tag" }]);
 
       await select(a);
+      const tagsBeforeManualEdit = a.getTags();
       start(
         proposal("add_tags", {
-          tags: ["Imported tag", "Manual", "Manual", "Agent-added"],
+          tags: ["Reviewed tag", "Manual", "Manual", "Agent-added"],
         }),
       );
       await pending();
@@ -593,10 +518,11 @@ describe("write approval in the Zotero sidebar", function () {
       await a.saveTx();
       click("Approve");
       const added = value((await results())[0]).outcomes[0];
-      await chat.writes.undo(added.historyID);
+      assert.equal(added.status, "applied");
       assert.sameDeepMembers(a.getTags(), [
-        { tag: "Imported tag", type: 1 },
+        ...tagsBeforeManualEdit,
         { tag: "Manual" },
+        { tag: "Agent-added" },
       ]);
 
       start(proposal("add_tags", { tags: ["Already added by user"] }));
@@ -606,7 +532,6 @@ describe("write approval in the Zotero sidebar", function () {
       click("Approve");
       const unchanged = value((await results())[0]).outcomes[0];
       assert.equal(unchanged.status, "unchanged");
-      assert.notProperty(unchanged, "historyID");
     } finally {
       b.save = saveB;
       setTagDeletionAllowed(false);

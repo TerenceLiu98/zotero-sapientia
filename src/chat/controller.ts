@@ -26,7 +26,13 @@ import {
 } from "./library-session";
 import { foldUpdate, type ChatMessage, type TurnContext } from "./transcript";
 
-export type { AssistantBlock, ChatMessage, TurnContext } from "./transcript";
+export type {
+  AssistantBlock,
+  AssistantMessage,
+  AssistantTool,
+  ChatMessage,
+  TurnContext,
+} from "./transcript";
 
 export type ConnectionState =
   "disconnected" | "connecting" | "connected" | "error";
@@ -768,9 +774,8 @@ export class ChatController {
     ) {
       return;
     }
-    this.update({
-      messages: foldUpdate(this.state.messages, update),
-    });
+    const messages = foldUpdate(this.state.messages, update, this.library);
+    if (messages !== this.state.messages) this.update({ messages });
   }
 
   private endTurn(stopReason: acp.StopReason): void {
@@ -780,6 +785,7 @@ export class ChatController {
       return;
     }
     turn.abort.abort();
+    const now = Date.now();
     this.update({
       execution: "idle",
       messages: this.state.messages.map((message) =>
@@ -787,7 +793,8 @@ export class ChatController {
           ? {
               ...message,
               stopReason,
-              thinkingEndedAt: message.thinkingEndedAt ?? Date.now(),
+              thinkingEndedAt: message.thinkingEndedAt ?? now,
+              ...(this.library && { endedAt: now }),
             }
           : message,
       ),

@@ -6,19 +6,13 @@ import {
   FilePlus2,
   FolderMinus,
   FolderPlus,
-  History,
   LoaderCircle,
   ShieldCheck,
   Tag,
-  Undo2,
   X,
 } from "lucide";
 import { getString, type MessageId } from "../../utils/locale";
-import {
-  writeError,
-  type Review,
-  type WriteApprovals,
-} from "../../writes/approval";
+import type { Review, WriteApprovals } from "../../writes/approval";
 import {
   parseNoteHTML,
   type ApprovedChange,
@@ -51,8 +45,6 @@ const icons = {
 
 export function createWriteReview(doc: Document, writes: WriteApprovals) {
   let review: Review | null = null;
-  let historyOpen = false;
-  let historyRequest = 0;
   let detailsOpen = false;
   const title = h(doc, "h3", {}, getString("write-review"));
   const subtitle = h(doc, "p", { class: "sap-write-subtitle" });
@@ -63,36 +55,6 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
     role: "status",
     class: "sap-write-status",
   });
-  const historyList = h(doc, "ol", { class: "sap-write-list" });
-  const historyError = h(doc, "div", {
-    role: "alert",
-    class: "sap-write-error",
-    hidden: true,
-  });
-  const historyPanel = h(
-    doc,
-    "section",
-    {
-      class: "sap-write-history",
-      hidden: true,
-      "aria-label": getString("write-history"),
-    },
-    historyError,
-    historyList,
-  );
-  const historyButton = iconButton(
-    doc,
-    getString("write-history"),
-    History,
-    () => {
-      historyOpen = !historyOpen;
-      historyButton.setAttribute("aria-expanded", String(historyOpen));
-      historyPanel.hidden = !historyOpen;
-      if (historyOpen) void refreshHistory();
-    },
-  );
-  historyButton.setAttribute("aria-expanded", "false");
-
   const confirm = action(
     "write-confirm",
     () => review && void writes.confirm(review.id),
@@ -450,74 +412,6 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
     return preview;
   }
 
-  async function refreshHistory() {
-    const request = ++historyRequest;
-    try {
-      const entries = await writes.history();
-      if (request !== historyRequest) return;
-      historyError.hidden = true;
-      historyList.replaceChildren(
-        ...(entries.length
-          ? entries.map((entry) => {
-              const undo = iconButton(
-                doc,
-                getString("write-undo"),
-                Undo2,
-                () => {
-                  undo.disabled = true;
-                  void writes.undo(entry.id).then(refreshHistory, (error) => {
-                    undo.disabled = false;
-                    historyError.textContent = writeError(error);
-                    historyError.hidden = false;
-                  });
-                },
-              );
-              return h(
-                doc,
-                "li",
-                { class: "sap-write-row sap-write-history-row" },
-                h(
-                  doc,
-                  "div",
-                  {},
-                  h(doc, "strong", {}, entry.target.title),
-                  h(doc, "div", {}, getString(labels[entry.operation])),
-                  h(
-                    doc,
-                    "time",
-                    {
-                      class: "sap-write-target",
-                      datetime: new Date(entry.time).toISOString(),
-                    },
-                    new Date(entry.time).toLocaleString(),
-                  ),
-                ),
-                entry.undone
-                  ? h(
-                      doc,
-                      "span",
-                      { class: "sap-write-status" },
-                      getString("write-undone"),
-                    )
-                  : undo,
-              );
-            })
-          : [
-              h(
-                doc,
-                "li",
-                { class: "sap-write-row" },
-                getString("write-history-empty"),
-              ),
-            ]),
-      );
-    } catch (error) {
-      if (request !== historyRequest) return;
-      historyError.textContent = writeError(error);
-      historyError.hidden = false;
-    }
-  }
-
   const unsubscribe = writes.subscribe((next) => {
     const previous = review;
     review = next;
@@ -619,17 +513,10 @@ export function createWriteReview(doc: Document, writes: WriteApprovals) {
       else if (running && active === confirm)
         cancel.focus({ preventScroll: true });
     }
-    if (historyOpen && outcomes.length !== previous?.outcomes.length)
-      void refreshHistory();
   });
 
   return {
     element,
-    historyPanel,
-    historyButton,
-    destroy() {
-      historyRequest++;
-      unsubscribe();
-    },
+    destroy: unsubscribe,
   };
 }

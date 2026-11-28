@@ -246,7 +246,6 @@ export type WriteOutcome = {
   operation: ApprovedChange["operation"];
   error?: string;
   reason?: string;
-  historyID?: string;
 };
 export type WriteResult = {
   status: "completed" | "cancelled" | "busy";

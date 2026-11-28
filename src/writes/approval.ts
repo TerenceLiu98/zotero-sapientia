@@ -1,10 +1,5 @@
 import { redactor } from "../utils/log";
-import {
-  applyWithHistory,
-  listHistory,
-  undoWrite,
-  type HistoryEntry,
-} from "./history";
+import { applyWrite } from "./apply";
 import type {
   ApprovedChange,
   WriteHandoff,
@@ -120,17 +115,9 @@ export class WriteApprovals {
         if (change.operation === "report_metadata_unresolved") {
           outcome = unresolvedOutcome(change);
         } else {
-          const result = await applyWithHistory(
-            change,
-            signal,
-            this.permissions,
-          );
+          const result = await applyWrite(change, signal, this.permissions);
           if (result === null) break;
-          outcome = {
-            ...result,
-            operation,
-            status: result.historyID ? "applied" : "unchanged",
-          };
+          outcome = { ...result, operation };
         }
       } catch (error) {
         outcome = {
@@ -192,13 +179,5 @@ export class WriteApprovals {
     this.active = null;
     active.finish(result);
     this.publish({ ...active.view, phase: status, outcomes: result.outcomes });
-  }
-
-  history(): Promise<HistoryEntry[]> {
-    return listHistory();
-  }
-
-  undo(id: string): Promise<void> {
-    return undoWrite(id);
   }
 }

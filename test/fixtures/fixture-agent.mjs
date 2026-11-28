@@ -216,6 +216,96 @@ async function runTurn(id, session, prompt) {
     content: { type: "text", text },
   });
   switch (command) {
+    case "library-run-progress": {
+      const delay = Math.min(5000, Number(rest[0]) || 450);
+      const titles = [
+        "Find papers on adaptive games",
+        "Review bibliographic metadata",
+        "Prepare the results summary",
+      ];
+      function plan(current) {
+        say({
+          sessionUpdate: "plan",
+          entries: titles.map((content, index) => ({
+            content,
+            priority: "medium",
+            status:
+              index === current
+                ? "in_progress"
+                : index < current
+                  ? "completed"
+                  : "pending",
+          })),
+        });
+      }
+      plan(0);
+      say({
+        sessionUpdate: "tool_call",
+        toolCallId: "library-search",
+        title: titles[0],
+        name: "search_library",
+        kind: "search",
+        status: "in_progress",
+        rawInput: { query: "adaptive games", apiKey: "fixture-tool-secret" },
+      });
+      await sleep(delay);
+      if (turn.cancelled) return end("cancelled");
+      say({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "library-search",
+        status: "completed",
+        content: [
+          {
+            type: "content",
+            content: { type: "text", text: "3 matching papers" },
+          },
+        ],
+      });
+      chunk("I found matching papers in your library.");
+      await sleep(delay);
+      if (turn.cancelled) return end("cancelled");
+      plan(1);
+      say({
+        sessionUpdate: "tool_call",
+        toolCallId: "paper-review",
+        title: titles[1],
+        name: "read_paper_metadata",
+        kind: "read",
+        status: "in_progress",
+      });
+      await sleep(delay);
+      if (turn.cancelled) return end("cancelled");
+      say({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "paper-review",
+        status: "completed",
+        content: [
+          {
+            type: "content",
+            content: {
+              type: "resource_link",
+              name: "Results summary",
+              uri: "urn:fixture:library-run-progress",
+              mimeType: "text/markdown",
+            },
+          },
+        ],
+      });
+      plan(2);
+      await sleep(delay);
+      if (turn.cancelled) return end("cancelled");
+      plan(titles.length);
+      say({
+        sessionUpdate: "usage_update",
+        used: 840,
+        size: 8192,
+        cost: { amount: 0.02, currency: "USD" },
+      });
+      chunk(
+        "\n\nI reviewed the matching papers and saved the results summary.",
+      );
+      return end("end_turn");
+    }
     case "echo": {
       const words = rest[0].split(" ");
       for (const word of words) {

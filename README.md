@@ -33,17 +33,17 @@ Set **Selection Shortcut** and **Selection Prompt** in the same settings pane. T
 
 Open **Library Agent** from the Zotero toolbar. Its conversation and selected Agent are independent of the paper sidebar. With HTTP MCP support, the Agent can search your personal library by title, author, DOI, year, tag, or collection, then read the papers it finds.
 
-The Agent can create collections, update their membership, propose tags, and correct metadata with source evidence. **Request approval** previews each batch of up to 50 operations. **Direct writes** applies validated batches for the current Zotero run. Both modes record changes in **Write history** for undo. Tag deletion has its own permission.
+The Agent can create collections, update their membership, propose tags, and correct metadata with source evidence. **Request approval** previews each batch of up to 50 operations. **Direct writes** applies validated batches for the current Zotero run. Tag deletion has its own permission.
 
 Zotero stores the conversation in its local profile. When the Agent cannot reopen the previous ACP session, the next prompt includes a recap of up to 12 turns and 48 KiB. To continue an interrupted job, send a new request.
 
-## Approve and undo writes
+## Approve writes
 
-When reading an attached PDF, the agent can propose updates to the parent Zotero item's type, bibliographic fields, and creators. The approval card shows the old and new values, including fields cleared when switching types. Approved updates are available in **Write history**.
+When reading an attached PDF, the agent can propose updates to the parent Zotero item's type, bibliographic fields, and creators. The approval card shows the old and new values, including fields cleared when switching types.
 
 Pass `itemType` to `read_paper_metadata` to look up the fields and creator roles supported by a target type. To propose the conversion, use `propose_zotero_write` with `operation: "update_metadata"` and `change: { "itemType": "journalArticle" }`. The same `change` can include fields and creators for the target type.
 
-In **Request approval** mode, the sidebar shows each proposed target, operation, and payload. Confirm runs the reviewed changes in order. Cancel stops pending operations and lets any operation already in progress finish. The sidebar reports each outcome and keeps successful changes available under **Write history**. Undo restores the original note or tag state when the affected content still matches the recorded result. Choose **Read only** to disable agent write proposals. Tag deletion requires a separate opt-in in the same permissions menu.
+In **Request approval** mode, the sidebar shows each proposed target, operation, and payload. Confirm runs the reviewed changes in order. Cancel stops pending operations and lets any operation already in progress finish. The sidebar reports each outcome. Choose **Read only** to disable agent write proposals. Tag deletion requires a separate opt-in in the same permissions menu.
 
 The approval card follows the public interaction design of the [affectUI Approval Card](https://www.affectui.com/components/approval-card) and uses native Zotero DOM and styles.
 
@@ -60,7 +60,7 @@ Native Gecko subprocess transport was validated on Zotero 10.0.9 for macOS with 
 
 On Zotero 10.0.9 for macOS with Codex CLI 0.172.0 and Codex ACP 2.12.0, the live test answered a question from physical page 1, explained the selected text, and summarized pages 2–3 of a synthetic three-page PDF. Clicking the last citation opened physical page 3 of that attachment.
 
-Library Agent acceptance passed on Zotero 10.0.9 for macOS with the repository's ACP fixture agent 1.0.0. In the isolated profile, the Agent found two papers, added both to a collection, and proposed a metadata correction with source evidence. The correction was approved and undone. A second Zotero process restored the same ACP session, searched the same library, and opened in approval mode with the interrupted write cancelled.
+Library Agent acceptance passed on Zotero 10.0.9 for macOS with the repository's ACP fixture agent 1.0.0. In the isolated profile, the Agent found two papers, added both to a collection, and applied an approved metadata correction with source evidence. A second Zotero process restored the same ACP session and kept the corrected metadata. It opened in approval mode with the interrupted write cancelled.
 
 Marginalia acceptance passed on Zotero 10.0.9 and macOS 27.3. Preview 11.0 and Adobe Acrobat Reader 26.001.21662 showed all four native comments, including Chinese text and line breaks. Zotero's export left the source PDF byte-for-byte unchanged. After editing a separate copy with macOS PDFKit and importing it through Zotero's annotation transfer, the edited comment appeared in Marginalia at the original highlight. A two-process test also verified that saved comments reappear after restarting Zotero.
 
@@ -77,6 +77,6 @@ To switch from a beta to `v0.1`, install the stable XPI manually. Zotero sorts `
 ## Acknowledgments
 
 - Thanks to [zotero-mcp](https://github.com/54yyyu/zotero-mcp) for examples of Zotero tools, PDF page reads, and citation navigation.
-- Thanks to [llm-for-zotero](https://github.com/yilewang/llm-for-zotero) for examples of reader interactions, write approvals, and undo.
+- Thanks to [llm-for-zotero](https://github.com/yilewang/llm-for-zotero) for examples of reader interactions and write approvals.
 - Thanks to [zotero-plugin-template](https://github.com/windingwind/zotero-plugin-template) for the Zotero plugin bootstrap example.
 - Thanks to [cc-llm4zotero-adapter](https://github.com/jianghao-zhang/cc-llm4zotero-adapter) for an example of connecting an external agent to Zotero through a local bridge.

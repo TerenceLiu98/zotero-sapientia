@@ -80,12 +80,55 @@ const message = z.discriminatedUnion("role", [
           toolCallId: z.string(),
           title: z.string(),
           status: z.enum(["pending", "in_progress", "completed", "failed"]),
+          name: z.string().optional(),
+          kind: z
+            .enum([
+              "read",
+              "edit",
+              "delete",
+              "move",
+              "search",
+              "execute",
+              "think",
+              "fetch",
+              "switch_mode",
+              "other",
+            ])
+            .optional(),
+          startedAt: z.number().optional(),
+          endedAt: z.number().optional(),
+          input: z.string().optional(),
+          output: z.string().optional(),
+          artifacts: z
+            .array(
+              z.object({
+                name: z.string(),
+              }),
+            )
+            .optional(),
         }),
       ])
       .array(),
     pdfRead: z.tuple([z.string(), z.string()]).array().optional(),
     startedAt: z.number().optional(),
     thinkingEndedAt: z.number().optional(),
+    endedAt: z.number().optional(),
+    plan: z
+      .array(
+        z.object({
+          content: z.string(),
+          priority: z.enum(["high", "medium", "low"]),
+          status: z.enum(["pending", "in_progress", "completed"]),
+        }),
+      )
+      .optional(),
+    usage: z
+      .object({
+        used: z.number(),
+        size: z.number(),
+        cost: z.object({ amount: z.number(), currency: z.string() }).optional(),
+      })
+      .optional(),
     stopReason: z
       .enum([
         "end_turn",
@@ -134,11 +177,14 @@ export async function loadLibrarySession(
   }
 }
 
-let pendingHistoryWrite = Promise.resolve();
+let pendingHistoryUpdate = Promise.resolve();
 
-function updateHistory(update: () => Promise<void>): Promise<void> {
-  const result = pendingHistoryWrite.then(update);
-  pendingHistoryWrite = result.catch(() => {});
+function updateHistory<T>(update: () => Promise<T>): Promise<T> {
+  const result = pendingHistoryUpdate.then(update);
+  pendingHistoryUpdate = result.then(
+    () => undefined,
+    () => undefined,
+  );
   return result;
 }
 
@@ -172,8 +218,11 @@ function summarizeThread(
   };
 }
 
-export async function loadLibraryHistory(): Promise<z.infer<typeof history>> {
-  await pendingHistoryWrite;
+export function loadLibraryHistory(): Promise<z.infer<typeof history>> {
+  return updateHistory(readLibraryHistory);
+}
+
+async function readLibraryHistory(): Promise<z.infer<typeof history>> {
   const stored = await readHistory();
   const directory = threadDirectory();
   const paths = (await IOUtils.exists(directory))
@@ -215,6 +264,21 @@ export function setActiveLibraryThread(id: string): Promise<void> {
     const stored = await readHistory();
     if (stored.activeThreadId !== activeThreadId)
       await writeJSON(historyPath(), { ...stored, activeThreadId });
+  });
+}
+
+export function deleteLibraryThread(id: string): Promise<string> {
+  const path = sessionPath(id);
+  return updateHistory(async () => {
+    const stored = await readLibraryHistory();
+    const threads = stored.threads.filter((entry) => entry.id !== id);
+    const activeThreadId =
+      stored.activeThreadId === id
+        ? (threads[0]?.id ?? createLibraryThreadId())
+        : stored.activeThreadId;
+    await writeJSON(historyPath(), { activeThreadId, threads });
+    await IOUtils.remove(path, { ignoreAbsent: true });
+    return activeThreadId;
   });
 }
 

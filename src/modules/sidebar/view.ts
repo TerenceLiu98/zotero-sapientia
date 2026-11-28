@@ -3,6 +3,8 @@ import {
   FolderPlus,
   FileOutput,
   MessageSquareText,
+  PanelRight,
+  PenLine,
   Power,
   RotateCcw,
   ScanSearch,
@@ -23,10 +25,11 @@ import { getString, type MessageId } from "../../utils/locale";
 import type { AnnotationSource } from "../marginalia/annotation";
 import { openAnnotationDraft } from "../marginalia/editor";
 import { h, iconButton, lucideIcon } from "../ui/dom";
-import { createAnswer } from "./answer";
+import { createAnswer, type AnswerState } from "./answer";
 import { createAnswerSelection } from "./answer-selection";
 import { createComposer } from "./composer";
 import { createContextView, selectionSource } from "./context";
+import { thinkingOrb } from "./thinking-orb";
 import { createThinkingState } from "./thinking";
 import { createWriteReview } from "./write-review";
 
@@ -35,6 +38,12 @@ export interface ChatView {
   setVisible(visible: boolean): void;
   setAnnotationSource(source?: AnnotationSource): void;
   destroy(): void;
+}
+
+interface LibraryWorkspace {
+  requests: HTMLElement;
+  toggleProgress(): void;
+  openRun(messageId: string, trigger: HTMLButtonElement): void;
 }
 
 const END_NOTES: Partial<Record<acp.StopReason, MessageId>> = {
@@ -52,6 +61,7 @@ export function createChatView(
   chat: ChatController,
   onClose?: () => void,
   context = createContextView(doc, undefined, chat.library),
+  workspace?: LibraryWorkspace,
 ): ChatView {
   const agentName = h(doc, "span", { class: "sap-chat-agent" });
   const statusLabel = h(doc, "span");
@@ -282,15 +292,22 @@ export function createChatView(
       ),
       h(doc, "div", { class: "sap-chat-identity" }, agentName, status),
       saveConversation,
-      writeReview.historyButton,
       button("action-agent-settings", Settings, openSettings),
+      workspace
+        ? iconButton(
+            doc,
+            getString("library-chat-toggle-progress"),
+            PanelRight,
+            workspace.toggleProgress,
+            "sap-chat-button sap-icon-button sap-library-progress-toggle",
+          )
+        : null,
     ),
     notice,
-    writeReview.historyPanel,
     transcript,
     context.element,
-    permissionRequest,
-    writeReview.element,
+    workspace ? null : permissionRequest,
+    workspace ? null : writeReview.element,
     chat.library
       ? h(
           doc,
@@ -303,6 +320,7 @@ export function createChatView(
       : composer.element,
     answerSelection.element,
   );
+  workspace?.requests.append(permissionRequest, writeReview.element);
 
   type Mounted =
     | { role: "user"; node: HTMLElement }
@@ -362,15 +380,27 @@ export function createChatView(
         ),
       };
     }
-    const thinking = createThinkingState(doc);
+    const thinking = workspace ? null : createThinkingState(doc);
+    const status = workspace
+      ? h(doc, "div", {
+          class: "sap-library-reply-status",
+          role: "status",
+          hidden: true,
+        })
+      : null;
     const answer = createAnswer(doc, {
       id: message.id,
       onRegenerate: () => {
         void chat.regenerate(message.id);
       },
-      onStop: () => {
-        void chat.stop();
-      },
+      onStop: workspace
+        ? undefined
+        : () => {
+            void chat.stop();
+          },
+      onViewRun: workspace
+        ? (trigger) => workspace.openRun(message.id, trigger)
+        : undefined,
       onAppendToAnnotation: !chat.library
         ? (text, anchor) =>
             previewAnnotation(text, "marginalia-append-answer", anchor)
@@ -383,7 +413,7 @@ export function createChatView(
       "article",
       { class: "sap-msg sap-msg-assistant", "data-answer-id": message.id },
       source,
-      thinking.element,
+      status ?? thinking?.element,
       answer.element,
       note,
     );
@@ -405,16 +435,49 @@ export function createChatView(
           source.hidden = !title;
           source.textContent = title ?? "";
           source.title = items?.map((item) => item.title).join("\n") ?? "";
-          thinking.render(current);
-          answerText = current.blocks
-            .flatMap((block) => (block.type === "text" ? [block.text] : []))
-            .join("");
+          thinking?.render(current);
+          const parts: string[] = [];
+          let newParagraph = false;
+          for (const block of current.blocks) {
+            if (block.type === "tool")
+              newParagraph = Boolean(workspace && parts.length);
+            if (block.type !== "text") continue;
+            if (newParagraph) parts.push("\n\n");
+            parts.push(block.text);
+            newParagraph = false;
+          }
+          answerText = parts.join("");
           const label = current.stopReason && END_NOTES[current.stopReason];
           note.hidden = !label;
           note.textContent = label ? getString(label) : "";
         }
-        answer.element.hidden = !answerText;
-        answer.render({
+        if (status) {
+          status.hidden =
+            Boolean(current.stopReason) || state.execution === "cancelling";
+          const latest = current.blocks.findLast(
+            (block) => block.type !== "text" || block.text.trim(),
+          );
+          const writing = latest?.type === "text";
+          const phase = writing ? "writing" : "thinking";
+          if (!status.hidden && status.dataset.phase !== phase) {
+            status.dataset.phase = phase;
+            status.replaceChildren(
+              writing
+                ? h(
+                    doc,
+                    "span",
+                    {
+                      class: "sap-library-writing-icon",
+                      "aria-hidden": "true",
+                    },
+                    lucideIcon(doc, PenLine, 16),
+                  )
+                : thinkingOrb(doc),
+              getString(writing ? "answer-writing" : "thinking-running"),
+            );
+          }
+        }
+        const answerState: AnswerState = {
           text: answerText,
           paperTitle: current.context?.paper?.title,
           pdfRead: current.pdfRead,
@@ -430,10 +493,11 @@ export function createChatView(
             state.connection === "connected" &&
             state.execution === "idle" &&
             Boolean(current.stopReason),
-        });
+        };
+        answer.render(answerState);
       },
       destroy() {
-        thinking.destroy();
+        thinking?.destroy();
         answer.destroy();
       },
     };
@@ -482,6 +546,7 @@ export function createChatView(
           : "status-cancelling"
         : (`status-${state.connection}` as const);
     statusLabel.textContent = getString(statusId);
+    status.hidden = Boolean(workspace && state.execution === "executing");
     connect.hidden = state.connection !== "disconnected";
     reconnect.hidden = state.connection !== "error";
     disconnect.hidden =
@@ -542,6 +607,7 @@ export function createChatView(
       composer.destroy();
       answerSelection.destroy();
       writeReview.destroy();
+      if (workspace) workspace.requests.replaceChildren();
       context.destroy();
       for (const item of mounted.values())
         if (item.role === "assistant") item.destroy();
